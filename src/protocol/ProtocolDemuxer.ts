@@ -5,7 +5,6 @@ import {
   SYNC_BYTE_1,
   SYNC_BYTE_2,
   TYPE_BOARD_CAPABILITIES,
-  TYPE_LA_CAPTURE_DATA,
   TYPE_SDR_RAW_IQ_FRAME,
   TYPE_SDR_SPECTRUM_FRAME,
   TYPE_STATUS_TELEMETRY,
@@ -14,7 +13,6 @@ import {
 function isValidFrameType(typeId: number): boolean {
   return (
     typeId === TYPE_STATUS_TELEMETRY ||
-    typeId === TYPE_LA_CAPTURE_DATA ||
     typeId === TYPE_BOARD_CAPABILITIES ||
     typeId === TYPE_SDR_SPECTRUM_FRAME ||
     typeId === TYPE_SDR_RAW_IQ_FRAME
@@ -24,7 +22,6 @@ function isValidFrameType(typeId: number): boolean {
 function isValidLengthForType(typeId: number, len: number): boolean {
   if (len > MAX_FRAME_PAYLOAD_LEN) return false;
   if (typeId === TYPE_STATUS_TELEMETRY) return len === 4;
-  if (typeId === TYPE_LA_CAPTURE_DATA) return len >= 8;
   if (typeId === TYPE_BOARD_CAPABILITIES) return len >= 2 && len <= 4096;
   if (typeId === TYPE_SDR_SPECTRUM_FRAME) return len >= 8 + 256 && len <= 8 + 2048;
   if (typeId === TYPE_SDR_RAW_IQ_FRAME) return len >= 8 + 2 && len <= MAX_FRAME_PAYLOAD_LEN;

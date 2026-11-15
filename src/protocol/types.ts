@@ -12,10 +12,6 @@ export const CMD_PIN_FORCE = CMD_FORCE_PIN_STATE;
 export const CMD_FORCE_BATCH_STATE = 0x11;
 export const CMD_BATCH_FORCE = CMD_FORCE_BATCH_STATE;
 export const CMD_SET_SIG_GEN = 0x12;
-export const CMD_START_CAPTURE = 0x20;
-export const CMD_LA_CAPTURE = CMD_START_CAPTURE;
-export const CMD_STOP_CAPTURE = 0x21;
-export const CMD_LA_ABORT = CMD_STOP_CAPTURE;
 export const CMD_SDR_TUNE = 0x30;
 export const CMD_SDR_STREAM_CTRL = 0x31;
 export const CMD_SDR_SWEEP_CFG = 0x32;
@@ -23,13 +19,9 @@ export const CMD_ENTER_BOOTLOADER = 0xf0;
 export const CMD_BOOTLOADER = CMD_ENTER_BOOTLOADER;
 
 export const TYPE_STATUS_TELEMETRY = 0x81;
-export const TYPE_LA_CAPTURE_DATA = 0x82;
 export const TYPE_BOARD_CAPABILITIES = 0x83;
 export const TYPE_SDR_SPECTRUM_FRAME = 0x84;
 export const TYPE_SDR_RAW_IQ_FRAME = 0x85;
-
-export const LA_FLAG_TRIGGERED = 0x01;
-export const LA_FLAG_ABORTED_EARLY = 0x02;
 
 export const MAX_FRAME_PAYLOAD_LEN = 32776;
 
@@ -51,12 +43,9 @@ export const SDR_STREAM_CONT_IQ = 3;
 export const SDR_DSP_FLAG_MAX_HOLD = 0x01;
 export const SDR_DSP_FLAG_DC_CANCEL = 0x02;
 
-export type AppMode = 'la' | 'sdr';
-
 export type PinForceMode = 0 | 1 | 2;
 export type PinPullMode = 0 | 1 | 2;
 export type PinForceState = 'Z' | '0' | '1' | 'PU' | 'PD' | 'SIG';
-export type TriggerMode = 'none' | 'rising' | 'falling' | 'high' | 'low';
 
 export interface ChannelMeta {
   ch: number;
@@ -76,39 +65,6 @@ export const CHANNELS: ChannelMeta[] = [
   { ch: 5, label: 'D5', gpio: 6, name: 'CH5 (D5)', color: '#fb923c' },
   { ch: 6, label: 'D6', gpio: 43, name: 'CH6 (D6)', color: '#22d3ee' },
   { ch: 7, label: 'D7', gpio: 44, name: 'CH7 (D7)', color: '#e879f9', sigGenSupported: true },
-];
-
-export interface RatePreset {
-  id: number;
-  label: string;
-  hz: number;
-}
-
-export const RATE_PRESETS: RatePreset[] = [
-  { id: 0, label: '1 kHz', hz: 1_000 },
-  { id: 1, label: '10 kHz', hz: 10_000 },
-  { id: 2, label: '50 kHz', hz: 50_000 },
-  { id: 3, label: '100 kHz', hz: 100_000 },
-  { id: 4, label: '250 kHz', hz: 250_000 },
-  { id: 5, label: '500 kHz', hz: 500_000 },
-  { id: 6, label: '1 MHz', hz: 1_000_000 },
-  { id: 7, label: '2 MHz', hz: 2_000_000 },
-  { id: 8, label: '5 MHz', hz: 5_000_000 },
-  { id: 9, label: '10 MHz', hz: 10_000_000 },
-  { id: 10, label: '20 MHz', hz: 20_000_000 },
-];
-
-export interface DepthPreset {
-  blocksKb: number;
-  label: string;
-  samples: number;
-}
-
-export const DEPTH_PRESETS: DepthPreset[] = [
-  { blocksKb: 4, label: '4K', samples: 4096 },
-  { blocksKb: 8, label: '8K', samples: 8192 },
-  { blocksKb: 16, label: '16K', samples: 16384 },
-  { blocksKb: 32, label: '32K', samples: 32768 },
 ];
 
 export interface SdrSampleRatePreset {
@@ -170,22 +126,6 @@ export interface StatusTelemetryFrame {
 
 export type StatusTelemetry = StatusTelemetryFrame;
 
-export interface CaptureDataFrame {
-  type: 'capture';
-  rateHz: number;
-  sampleRateHz: number;
-  trigIndex: number;
-  triggerIndex: number;
-  flags: number;
-  triggered: boolean;
-  autoTriggered: boolean;
-  abortedEarly: boolean;
-  samples: Uint8Array;
-  timestampMs: number;
-}
-
-export type CaptureData = CaptureDataFrame;
-
 export interface BoardCapabilityPin {
   ch: number;
   label: string;
@@ -241,7 +181,6 @@ export interface SdrRawIqFrame {
 
 export type DecodedFrame =
   | StatusTelemetryFrame
-  | CaptureDataFrame
   | BoardCapabilitiesFrame
   | SdrSpectrumFrame
   | SdrRawIqFrame;

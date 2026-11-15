@@ -13,7 +13,7 @@ import { SerialTransport, TransportSnapshot } from '../transport/SerialTransport
 
 export type DrawerTab = 'terminal' | 'flasher';
 
-export type TargetBoardKey = 'esp32s3' | 'esp32c6';
+export type TargetBoardKey = 'esp32s3';
 
 interface BoardFlashProfile {
   key: TargetBoardKey;
@@ -28,21 +28,12 @@ interface BoardFlashProfile {
 const BOARD_FLASH_PROFILES: Record<TargetBoardKey, BoardFlashProfile> = {
   esp32s3: {
     key: 'esp32s3',
-    label: 'XIAO ESP32-S3 (SDR + LA)',
+    label: 'Seeed Studio XIAO ESP32-S3',
     chipName: 'ESP32-S3',
     prefix: 'HotWire_SDR_XIAO_ESP32S3.ino',
     bootloaderOffset: 0x0,
     flashSize: '8MB',
-    hint: 'Full 1.84–2.79 GHz RF Spectrum Analyzer + Waterfall + 8-ch LA',
-  },
-  esp32c6: {
-    key: 'esp32c6',
-    label: 'XIAO ESP32-C6 (LA only)',
-    chipName: 'ESP32-C6',
-    prefix: 'HotWire_XIAO_ESP32C6.ino',
-    bootloaderOffset: 0x0,
-    flashSize: '4MB',
-    hint: '8-ch LA / Force I/O fallback board',
+    hint: '1.84–2.79 GHz RF Spectrum Analyzer + Waterfall Engine',
   },
 };
 
@@ -92,33 +83,24 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   const [flashOffset, setFlashOffset] = useState<'full' | '0x10000' | '0x0'>('full');
 
   useEffect(() => {
-    if (caps?.board.toUpperCase().includes('C6')) {
-      setTargetBoard('esp32c6');
-    } else if (caps?.board.toUpperCase().includes('S3')) {
-      setTargetBoard('esp32s3');
-    }
-  }, [caps]);
-
-  useEffect(() => {
-    if (!termContainerRef.current || termRef.current) return;
+    if (!termContainerRef.current) return;
 
     const term = new Terminal({
       cursorBlink: true,
+      fontFamily: 'Consolas, monospace',
       fontSize: 12,
-      fontFamily: '"JetBrains Mono", "Fira Code", Consolas, monospace',
       theme: {
-        background: '#020617',
-        foreground: '#e2e8f0',
-        cursor: '#38bdf8',
+        background: '#090d16',
+        foreground: '#d4e1f5',
       },
-      convertEol: true,
     });
+
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(termContainerRef.current);
     fitAddon.fit();
 
-    term.writeln('\x1b[36mHotWire SDR + Logic Analyzer Terminal Ready.\x1b[0m');
+    term.writeln('\x1b[36mHotWire SDR Terminal Ready.\x1b[0m');
     term.onData((data) => {
       void serialTransport.writeBytes(new TextEncoder().encode(data));
     });
@@ -511,7 +493,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
               )}
 
               <span className="flasher-hint">
-                {BOARD_FLASH_PROFILES[targetBoard].hint}
+                {caps ? `Connected: ${caps.board} (${caps.firmware})` : BOARD_FLASH_PROFILES[targetBoard].hint}
               </span>
             </div>
 

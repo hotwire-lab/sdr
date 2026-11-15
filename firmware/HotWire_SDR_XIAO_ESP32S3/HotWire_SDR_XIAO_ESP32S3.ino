@@ -1,10 +1,10 @@
 /*
- * HotWire SDR + 8-Channel Logic Analyzer Firmware for Seeed Studio XIAO ESP32-S3
+ * HotWire SDR - Dedicated 1.84–2.79 GHz RF Spectrum Analyzer Firmware for Seeed Studio XIAO ESP32-S3
  *
  * Implements Spec: hotwire_sdr_rf_spectrum_analyzer_extension_specification_xiao_esp32_s3.md
- * - Dual-Core Coexistence:
+ * - Dual-Core Operation:
  *     Core 0: USB CDC Binary Protocol Demuxer, Force-I/O, Contention Watchdog, Signal Generator
- *     Core 1: Dedicated High-Speed Engine (Mutual exclusion between 8-ch LA & ESP32-S3 RF Dump SDR)
+ *     Core 1: Dedicated ESP32-S3 RF Dump DSP Engine (IQ acquisition, FFT/Windowing, Waterfall/Spectrum stream)
  * - RF Dump Engine Memory Region Reserved: 0x3FCD0000 .. 0x3FCDFFFF
  * - Tuning Range: 1842 .. 2790 MHz (5/6 LO divider via I2C block 0x63 < 2210 MHz)
  *
@@ -17,8 +17,6 @@
 #include <Arduino.h>
 #include <math.h>
 #include "driver/gpio.h"
-#include "driver/dedic_gpio.h"
-#include "hal/dedic_gpio_cpu_ll.h"
 #include "soc/gpio_struct.h"
 #include "soc/soc.h"
 #include "soc/soc_caps.h"
@@ -38,7 +36,7 @@
 #include "freertos/task.h"
 
 #ifndef CONFIG_IDF_TARGET_ESP32S3
-  #error "This SDR + LA firmware targets Seeed Studio XIAO ESP32-S3 (ESP32-S3 RF Dump Engine)."
+  #error "This SDR firmware targets Seeed Studio XIAO ESP32-S3 (ESP32-S3 RF Dump Engine)."
 #endif
 
 // Reserve physical 64 KB SRAM block 0x3FCD0000 - 0x3FCDFFFF from heap allocator
@@ -75,17 +73,9 @@ static const uint8_t CHANNEL_PINS[CHANNEL_COUNT] = { 1, 2, 3, 4, 5, 6, 43, 44 };
 static const char* const CHANNEL_LABELS[CHANNEL_COUNT] = { "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7" };
 static const uint32_t CPU_FREQ_HZ = 240000000UL;
 
-static const uint32_t MAX_SAMPLES = 32768;
 static const uint64_t CONTENTION_CUTOFF_US = 20000ULL;
 static const uint64_t TELEMETRY_INTERVAL_US = 40000ULL;
 static const uint64_t CHANGE_THROTTLE_US = 4000ULL;
-static const uint64_t LOW_SPEED_TRIG_TIMEOUT_US = 5000000ULL;
-
-static const uint8_t RATE_PRESET_COUNT = 11;
-static const uint32_t RATE_PRESETS_HZ[RATE_PRESET_COUNT] = {
-  1000UL, 10000UL, 50000UL, 100000UL, 250000UL, 500000UL,
-  1000000UL, 2000000UL, 5000000UL, 10000000UL, 20000000UL
-};
 
 // -----------------------------------------------------------------------------
 // ESP32-S3 RF Dump Engine Constants & Registers
@@ -126,22 +116,15 @@ static const uint8_t CMD_GET_CAPS    = 0x02;
 static const uint8_t CMD_PIN_FORCE   = 0x10;
 static const uint8_t CMD_BATCH_FORCE = 0x11;
 static const uint8_t CMD_SIG_GEN     = 0x12;
-static const uint8_t CMD_LA_CAPTURE  = 0x20;
-static const uint8_t CMD_LA_ABORT    = 0x21;
 static const uint8_t CMD_SDR_TUNE    = 0x30;
 static const uint8_t CMD_SDR_STREAM  = 0x31;
 static const uint8_t CMD_SDR_SWEEP   = 0x32;
 static const uint8_t CMD_BOOTLOADER  = 0xF0;
 
 static const uint8_t TYPE_STATUS_TELEMETRY   = 0x81;
-static const uint8_t TYPE_LA_CAPTURE_DATA    = 0x82;
 static const uint8_t TYPE_BOARD_CAPABILITIES = 0x83;
 static const uint8_t TYPE_SDR_SPECTRUM_FRAME = 0x84;
 static const uint8_t TYPE_SDR_RAW_IQ_FRAME   = 0x85;
-
-static const uint16_t LA_FLAG_TRIGGERED     = 0x0001;
-static const uint16_t LA_FLAG_AUTO_TIMEOUT  = 0x0002;
-static const uint16_t LA_FLAG_ABORTED_EARLY = 0x0004;
 
 // -----------------------------------------------------------------------------
 // Shared Firmware State & Buffers
@@ -149,7 +132,6 @@ static const uint16_t LA_FLAG_ABORTED_EARLY = 0x0004;
 
 static SemaphoreHandle_t stateMutex = nullptr;
 static SemaphoreHandle_t txMutex = nullptr;
-static portMUX_TYPE laSpinlock = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE rfSpinlock = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE sigSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -164,11 +146,6 @@ static volatile bool immediateTelemetryPending = false;
 static bool mismatchActive[CHANNEL_COUNT] = { false };
 static uint64_t mismatchStartUs[CHANNEL_COUNT] = { 0 };
 
-// LA + SDR buffers dynamically allocated on internal DRAM / PSRAM during setup
-// so static .bss stays comfortably below 0x3FCD0000 RF Dump region.
-static uint8_t* ringBuf = nullptr;
-static uint8_t* captureBuffer = nullptr;
-
 // SDR working buffers (heap allocated outside reserved 0x3FCD0000..0x3FCDFFFF)
 static int16_t* sdrIqI = nullptr;
 static int16_t* sdrIqQ = nullptr;
@@ -179,25 +156,11 @@ static float* sdrHann = nullptr;
 static uint8_t* sdrQuantBins = nullptr;
 static uint8_t* sdrTxFrame = nullptr; // 5 + 8 + max(2048, 32760) + 1 = 32782 bytes max
 
-struct CaptureRequest {
-  uint8_t rateId;
-  uint8_t trigCh;
-  uint8_t trigCfg;
-  uint8_t blocksKb;
-};
-
-static CaptureRequest pendingCaptureReq = { 6, 0xFF, 0, 16 };
-static volatile bool laCaptureRequested = false;
-static volatile bool laCaptureActive = false;
-static volatile bool laAbortRequested = false;
-
 static TaskHandle_t core0TaskHandle = nullptr;
 static TaskHandle_t core1TaskHandle = nullptr;
 static TaskHandle_t sigGenTaskHandle = nullptr;
 static volatile uint8_t sigGenMode = 0;
 static volatile uint8_t sigGenPinMask = 0x00;
-static bool dedicGpioReady = false;
-static uint32_t dedicInOffset = 0;
 
 // SDR Control & Runtime State
 struct SdrConfig {
@@ -234,26 +197,6 @@ static inline uint8_t IRAM_ATTR readAllChannelsFast() {
   uint32_t low = (GPIO.in >> 1) & 0x3FU;
   uint32_t high = ((GPIO.in1.val >> 11) & 0x03U) << 6;
   return (uint8_t)(low | high);
-}
-
-static void initCore1DedicGpio() {
-  int gpioArray[CHANNEL_COUNT];
-  for (uint8_t i = 0; i < CHANNEL_COUNT; i++) {
-    gpioArray[i] = CHANNEL_PINS[i];
-  }
-  dedic_gpio_bundle_config_t bundleCfg = {
-    .gpio_array = gpioArray,
-    .array_size = CHANNEL_COUNT,
-    .flags = { .in_en = 1, .in_invert = 0, .out_en = 0, .out_invert = 0 }
-  };
-  dedic_gpio_bundle_handle_t handle = nullptr;
-  if (dedic_gpio_new_bundle(&bundleCfg, &handle) == ESP_OK && handle != nullptr) {
-    uint32_t offset = 0;
-    if (dedic_gpio_get_in_offset(handle, &offset) == ESP_OK) {
-      dedicInOffset = offset;
-      dedicGpioReady = true;
-    }
-  }
 }
 
 static inline void IRAM_ATTR preloadOutputLatch(uint8_t pin, uint8_t level) {
@@ -392,7 +335,7 @@ static void sendTelemetryFrame() {
 static void sendCapabilitiesFrame() {
   static const char CAPS_JSON[] =
     "{\"board\":\"XIAO-ESP32-S3\",\"firmware\":\"" HOTWIRE_FW_VERSION "\",\"channels\":8,"
-    "\"maxRateHz\":20000000,\"maxDepth\":32768,\"sdr\":true,\"capFlags\":7,"
+    "\"sdr\":true,\"capFlags\":7,"
     "\"pins\":["
     "{\"ch\":0,\"label\":\"D0\",\"gpio\":1},"
     "{\"ch\":1,\"label\":\"D1\",\"gpio\":2},"
@@ -774,321 +717,16 @@ static void sendSdrRawIqFrame(
 }
 
 // -----------------------------------------------------------------------------
-// Core 1 Logic Analyzer Engine (Preserved Coexistence)
-// -----------------------------------------------------------------------------
-
-static inline bool IRAM_ATTR matchesTriggerEdge(uint8_t prevSample, uint8_t curSample, uint8_t trigMask, uint8_t edgeType) {
-  const uint8_t prevBit = prevSample & trigMask;
-  const uint8_t curBit = curSample & trigMask;
-  if (edgeType == 0) return (prevBit != 0) && (curBit == 0);
-  if (edgeType == 1) return (prevBit == 0) && (curBit != 0);
-  return prevBit != curBit;
-}
-
-static void IRAM_ATTR linearizeRingBuffer(uint32_t trigRingPos, uint32_t preCount, uint32_t postCountIncludingTrig) {
-  uint32_t startPos = (trigRingPos + MAX_SAMPLES - preCount) & (MAX_SAMPLES - 1U);
-  uint32_t total = preCount + postCountIncludingTrig;
-  if (total > MAX_SAMPLES) total = MAX_SAMPLES;
-  for (uint32_t i = 0; i < total; i++) {
-    captureBuffer[i] = ringBuf[(startPos + i) & (MAX_SAMPLES - 1U)];
-  }
-}
-
-static void IRAM_ATTR executeHighSpeedCapture(
-  uint32_t rateHz, uint8_t trigCh, uint8_t edgeType, uint32_t totalSamples, uint32_t preTrigSamples,
-  uint32_t* outSamples, uint16_t* outTrigIndex, uint16_t* outFlags, uint32_t* outActualRateHz
-) {
-  uint32_t cyclesPerSample = (rateHz > 0) ? (CPU_FREQ_HZ / rateHz) : CPU_FREQ_HZ;
-  if (cyclesPerSample < 12UL) cyclesPerSample = 12UL;
-
-  const uint32_t trigWaitMaxCycles = CPU_FREQ_HZ / 2U;
-  uint16_t flags = 0;
-  uint16_t trigIndex = 0;
-
-  if (trigCh >= CHANNEL_COUNT) {
-    portENTER_CRITICAL(&laSpinlock);
-    uint32_t nextCycle = esp_cpu_get_cycle_count() + cyclesPerSample;
-    for (uint32_t i = 0; i < totalSamples; i++) {
-      while ((int32_t)(esp_cpu_get_cycle_count() - nextCycle) < 0) {}
-      captureBuffer[i] = readAllChannelsFast();
-      nextCycle += cyclesPerSample;
-    }
-    portEXIT_CRITICAL(&laSpinlock);
-
-    *outSamples = totalSamples;
-    *outTrigIndex = 0;
-    *outFlags = 0;
-    *outActualRateHz = CPU_FREQ_HZ / cyclesPerSample;
-    return;
-  }
-
-  const uint8_t trigMask = (uint8_t)(1U << trigCh);
-  uint32_t writeIdx = 0;
-  portENTER_CRITICAL(&laSpinlock);
-  uint32_t nextCycle = esp_cpu_get_cycle_count() + cyclesPerSample;
-
-  for (uint32_t i = 0; i < preTrigSamples; i++) {
-    while ((int32_t)(esp_cpu_get_cycle_count() - nextCycle) < 0) {}
-    ringBuf[writeIdx] = readAllChannelsFast();
-    writeIdx = (writeIdx + 1U) & (MAX_SAMPLES - 1U);
-    nextCycle += cyclesPerSample;
-  }
-
-  uint8_t prevSample = (preTrigSamples > 0)
-    ? ringBuf[(writeIdx + MAX_SAMPLES - 1U) & (MAX_SAMPLES - 1U)]
-    : readAllChannelsFast();
-
-  const uint32_t trigStartCycle = esp_cpu_get_cycle_count();
-  uint32_t trigRingPos = writeIdx;
-  while (true) {
-    while ((int32_t)(esp_cpu_get_cycle_count() - nextCycle) < 0) {}
-    uint8_t curSample = readAllChannelsFast();
-    ringBuf[writeIdx] = curSample;
-    trigRingPos = writeIdx;
-    writeIdx = (writeIdx + 1U) & (MAX_SAMPLES - 1U);
-    nextCycle += cyclesPerSample;
-
-    if (matchesTriggerEdge(prevSample, curSample, trigMask, edgeType)) {
-      flags |= LA_FLAG_TRIGGERED;
-      break;
-    }
-    prevSample = curSample;
-    if ((uint32_t)(esp_cpu_get_cycle_count() - trigStartCycle) >= trigWaitMaxCycles) {
-      flags |= LA_FLAG_AUTO_TIMEOUT;
-      break;
-    }
-  }
-
-  const uint32_t postTarget = (totalSamples > preTrigSamples + 1U) ? (totalSamples - preTrigSamples - 1U) : 0U;
-  for (uint32_t i = 0; i < postTarget; i++) {
-    while ((int32_t)(esp_cpu_get_cycle_count() - nextCycle) < 0) {}
-    ringBuf[writeIdx] = readAllChannelsFast();
-    writeIdx = (writeIdx + 1U) & (MAX_SAMPLES - 1U);
-    nextCycle += cyclesPerSample;
-  }
-  portEXIT_CRITICAL(&laSpinlock);
-
-  linearizeRingBuffer(trigRingPos, preTrigSamples, postTarget + 1U);
-  trigIndex = (uint16_t)preTrigSamples;
-  *outSamples = preTrigSamples + 1U + postTarget;
-  *outTrigIndex = trigIndex;
-  *outFlags = flags;
-  *outActualRateHz = CPU_FREQ_HZ / cyclesPerSample;
-}
-
-static bool lowSpeedWaitSample(uint64_t nextSampleUs, uint64_t intervalUs, uint64_t* lastYieldUs) {
-  if (laAbortRequested) return false;
-  uint64_t nowUs = (uint64_t)esp_timer_get_time();
-  if (nowUs < nextSampleUs) {
-    uint64_t rem = nextSampleUs - nowUs;
-    if (rem >= 2000ULL || (intervalUs >= 1000ULL && rem >= 900ULL)) {
-      vTaskDelay(1);
-      *lastYieldUs = (uint64_t)esp_timer_get_time();
-    } else if ((nowUs - *lastYieldUs) >= 1500000ULL) {
-      vTaskDelay(1);
-      *lastYieldUs = (uint64_t)esp_timer_get_time();
-    }
-    while ((uint64_t)esp_timer_get_time() < nextSampleUs) {
-      if (laAbortRequested) return false;
-    }
-  } else if ((nowUs - *lastYieldUs) >= 1500000ULL) {
-    vTaskDelay(1);
-    *lastYieldUs = (uint64_t)esp_timer_get_time();
-  }
-  return !laAbortRequested;
-}
-
-static void executeLowSpeedCapture(
-  uint32_t rateHz, uint8_t trigCh, uint8_t edgeType, uint32_t totalSamples, uint32_t preTrigSamples,
-  uint32_t* outSamples, uint16_t* outTrigIndex, uint16_t* outFlags, uint32_t* outActualRateHz
-) {
-  const uint64_t intervalUs = 1000000ULL / rateHz;
-  uint16_t flags = 0;
-  uint16_t trigIndex = 0;
-  uint64_t nextSampleUs = (uint64_t)esp_timer_get_time();
-  uint64_t lastYieldUs = nextSampleUs;
-
-  if (trigCh >= CHANNEL_COUNT) {
-    uint32_t collected = 0;
-    for (uint32_t i = 0; i < totalSamples; i++) {
-      if (!lowSpeedWaitSample(nextSampleUs, intervalUs, &lastYieldUs)) {
-        flags |= LA_FLAG_ABORTED_EARLY;
-        break;
-      }
-      captureBuffer[collected++] = readAllChannelsFast();
-      nextSampleUs += intervalUs;
-    }
-    *outSamples = collected;
-    *outTrigIndex = 0;
-    *outFlags = flags;
-    *outActualRateHz = rateHz;
-    return;
-  }
-
-  const uint8_t trigMask = (uint8_t)(1U << trigCh);
-  uint32_t writeIdx = 0;
-  uint32_t collectedRing = 0;
-
-  for (uint32_t i = 0; i < preTrigSamples; i++) {
-    if (!lowSpeedWaitSample(nextSampleUs, intervalUs, &lastYieldUs)) {
-      flags |= LA_FLAG_ABORTED_EARLY;
-      for (uint32_t k = 0; k < collectedRing; k++) captureBuffer[k] = ringBuf[k];
-      *outSamples = collectedRing;
-      *outTrigIndex = 0;
-      *outFlags = flags;
-      *outActualRateHz = rateHz;
-      return;
-    }
-    ringBuf[writeIdx] = readAllChannelsFast();
-    writeIdx = (writeIdx + 1U) & (MAX_SAMPLES - 1U);
-    collectedRing++;
-    nextSampleUs += intervalUs;
-  }
-
-  uint8_t prevSample = (preTrigSamples > 0)
-    ? ringBuf[(writeIdx + MAX_SAMPLES - 1U) & (MAX_SAMPLES - 1U)]
-    : readAllChannelsFast();
-
-  const uint64_t trigWaitStartUs = (uint64_t)esp_timer_get_time();
-  uint32_t trigRingPos = 0;
-  bool abortedInWait = false;
-
-  while (true) {
-    if (!lowSpeedWaitSample(nextSampleUs, intervalUs, &lastYieldUs)) {
-      flags |= LA_FLAG_ABORTED_EARLY;
-      abortedInWait = true;
-      break;
-    }
-    uint8_t curSample = readAllChannelsFast();
-    ringBuf[writeIdx] = curSample;
-    trigRingPos = writeIdx;
-    writeIdx = (writeIdx + 1U) & (MAX_SAMPLES - 1U);
-    if (collectedRing < MAX_SAMPLES) collectedRing++;
-    nextSampleUs += intervalUs;
-
-    if (matchesTriggerEdge(prevSample, curSample, trigMask, edgeType)) {
-      flags |= LA_FLAG_TRIGGERED;
-      break;
-    }
-    prevSample = curSample;
-    if (((uint64_t)esp_timer_get_time() - trigWaitStartUs) >= LOW_SPEED_TRIG_TIMEOUT_US) {
-      flags |= LA_FLAG_AUTO_TIMEOUT;
-      break;
-    }
-  }
-
-  if (abortedInWait) {
-    uint32_t count = (collectedRing > totalSamples) ? totalSamples : collectedRing;
-    uint32_t startPos = (writeIdx + MAX_SAMPLES - count) & (MAX_SAMPLES - 1U);
-    for (uint32_t i = 0; i < count; i++) captureBuffer[i] = ringBuf[(startPos + i) & (MAX_SAMPLES - 1U)];
-    *outSamples = count;
-    *outTrigIndex = 0;
-    *outFlags = flags;
-    *outActualRateHz = rateHz;
-    return;
-  }
-
-  const uint32_t postTarget = (totalSamples > preTrigSamples + 1U) ? (totalSamples - preTrigSamples - 1U) : 0U;
-  uint32_t postCollected = 0;
-  for (uint32_t i = 0; i < postTarget; i++) {
-    if (!lowSpeedWaitSample(nextSampleUs, intervalUs, &lastYieldUs)) {
-      flags |= LA_FLAG_ABORTED_EARLY;
-      break;
-    }
-    ringBuf[writeIdx] = readAllChannelsFast();
-    writeIdx = (writeIdx + 1U) & (MAX_SAMPLES - 1U);
-    postCollected++;
-    nextSampleUs += intervalUs;
-  }
-
-  linearizeRingBuffer(trigRingPos, preTrigSamples, postCollected + 1U);
-  trigIndex = (uint16_t)preTrigSamples;
-  *outSamples = preTrigSamples + 1U + postCollected;
-  *outTrigIndex = trigIndex;
-  *outFlags = flags;
-  *outActualRateHz = rateHz;
-}
-
-static void transmitCaptureFrame(uint32_t sampleRateHz, uint16_t trigIndex, uint16_t flags, uint32_t sampleCount) {
-  const uint16_t payloadLen = (uint16_t)(8U + sampleCount);
-  uint8_t frameHeader[13];
-  frameHeader[0] = SYNC_BYTE_0;
-  frameHeader[1] = SYNC_BYTE_1;
-  frameHeader[2] = TYPE_LA_CAPTURE_DATA;
-  frameHeader[3] = (uint8_t)(payloadLen & 0xFFU);
-  frameHeader[4] = (uint8_t)((payloadLen >> 8) & 0xFFU);
-  frameHeader[5] = (uint8_t)(sampleRateHz & 0xFFU);
-  frameHeader[6] = (uint8_t)((sampleRateHz >> 8) & 0xFFU);
-  frameHeader[7] = (uint8_t)((sampleRateHz >> 16) & 0xFFU);
-  frameHeader[8] = (uint8_t)((sampleRateHz >> 24) & 0xFFU);
-  frameHeader[9] = (uint8_t)(trigIndex & 0xFFU);
-  frameHeader[10] = (uint8_t)((trigIndex >> 8) & 0xFFU);
-  frameHeader[11] = (uint8_t)(flags & 0xFFU);
-  frameHeader[12] = (uint8_t)((flags >> 8) & 0xFFU);
-
-  uint8_t xorSum = 0;
-  for (size_t i = 0; i < sizeof(frameHeader); i++) xorSum ^= frameHeader[i];
-  for (uint32_t i = 0; i < sampleCount; i++) xorSum ^= captureBuffer[i];
-
-  if (txMutex) xSemaphoreTake(txMutex, portMAX_DELAY);
-  writeChunkedLocked(frameHeader, sizeof(frameHeader));
-  if (sampleCount > 0) writeChunkedLocked(captureBuffer, sampleCount);
-  writeChunkedLocked(&xorSum, 1);
-  if (txMutex) xSemaphoreGive(txMutex);
-}
-
-static void runLaCaptureJob() {
-  CaptureRequest req = pendingCaptureReq;
-  const uint8_t rateId = (req.rateId < RATE_PRESET_COUNT) ? req.rateId : (RATE_PRESET_COUNT - 1);
-  const uint32_t rateHz = RATE_PRESETS_HZ[rateId];
-  const uint8_t blocksKb = (req.blocksKb < 1) ? 1 : (req.blocksKb > 32 ? 32 : req.blocksKb);
-  const uint32_t totalSamples = (uint32_t)blocksKb * 1024U;
-  const uint8_t edgeType = req.trigCfg & 0x03U;
-  const uint8_t preTrigCode = (req.trigCfg >> 4) & 0x03U;
-
-  uint32_t preTrigSamples = 0;
-  if (req.trigCh < CHANNEL_COUNT) {
-    if (preTrigCode == 1) preTrigSamples = totalSamples / 4U;
-    else if (preTrigCode == 2) preTrigSamples = totalSamples / 2U;
-    else if (preTrigCode == 3) preTrigSamples = (totalSamples * 3U) / 4U;
-  }
-
-  uint32_t actualSamples = 0;
-  uint16_t trigIndex = 0;
-  uint16_t flags = 0;
-  uint32_t actualRateHz = rateHz;
-
-  if (rateId >= 3) {
-    executeHighSpeedCapture(rateHz, req.trigCh, edgeType, totalSamples, preTrigSamples, &actualSamples, &trigIndex, &flags, &actualRateHz);
-  } else {
-    executeLowSpeedCapture(rateHz, req.trigCh, edgeType, totalSamples, preTrigSamples, &actualSamples, &trigIndex, &flags, &actualRateHz);
-  }
-
-  transmitCaptureFrame(actualRateHz, trigIndex, flags, actualSamples);
-  laAbortRequested = false;
-  laCaptureActive = false;
-}
-
-// -----------------------------------------------------------------------------
-// Core 1 Unified Engine Task (LA Capture + SDR RF Dump DSP)
+// Core 1 SDR Engine Task (RF Dump Acquisition & DSP Pipeline)
 // -----------------------------------------------------------------------------
 
 static void Engine_Core1_Task(void* arg) {
   (void)arg;
-  initCore1DedicGpio();
 
   uint8_t sweepIdx = 0;
   uint8_t sweepDwellCnt = 0;
 
   for (;;) {
-    // Priority 1: Logic Analyzer Capture
-    if (laCaptureRequested) {
-      laCaptureRequested = false;
-      laCaptureActive = true;
-      runLaCaptureJob();
-      continue;
-    }
-
     // Check SDR Tune updates cleanly on Core 1
     SdrConfig cfg;
     cfg.centerFreqMhz    = sdrCfg.centerFreqMhz;
@@ -1171,7 +809,7 @@ static void Engine_Core1_Task(void* arg) {
     bool anyTrunc = false;
 
     for (uint8_t w = 0; w < subWindows; w++) {
-      if (laCaptureRequested || sdrCfg.streamMode == SDR_STREAM_STOP || sdrTuneDirty) break;
+      if (sdrCfg.streamMode == SDR_STREAM_STOP || sdrTuneDirty) break;
 
       bool subClip = false;
       bool subTrunc = false;
@@ -1213,7 +851,7 @@ static void Engine_Core1_Task(void* arg) {
       }
     }
 
-    if (laCaptureRequested || sdrCfg.streamMode == SDR_STREAM_STOP || sdrTuneDirty) {
+    if (sdrCfg.streamMode == SDR_STREAM_STOP || sdrTuneDirty) {
       continue;
     }
 
@@ -1392,7 +1030,6 @@ static void SigGen_Core0_Task(void* arg) {
 static void handleEnterBootloader(uint8_t p1, uint8_t p2, uint8_t p3, uint8_t p4) {
   if (p1 != 0xB0 || p2 != 0x07 || p3 != 0x10 || p4 != 0xAD) return;
   sdrCfg.streamMode = SDR_STREAM_STOP;
-  laAbortRequested = true;
   releaseAllChannels();
   delay(20);
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
@@ -1423,22 +1060,6 @@ static void dispatchBinaryCommand(const uint8_t* frame) {
     case CMD_SIG_GEN:
       handleSigGenCmd(p1, p2);
       break;
-    case CMD_LA_CAPTURE:
-      // Stop active SDR stream cleanly before starting LA capture
-      sdrCfg.streamMode = SDR_STREAM_STOP;
-      if (!laCaptureActive && core1TaskHandle != nullptr) {
-        pendingCaptureReq.rateId = p1;
-        pendingCaptureReq.trigCh = p2;
-        pendingCaptureReq.trigCfg = p3;
-        pendingCaptureReq.blocksKb = p4;
-        laAbortRequested = false;
-        laCaptureRequested = true;
-        xTaskNotifyGive(core1TaskHandle);
-      }
-      break;
-    case CMD_LA_ABORT:
-      if (laCaptureActive) laAbortRequested = true;
-      break;
     case CMD_SDR_TUNE: {
       uint16_t freq = (uint16_t)(p1 | ((uint16_t)p2 << 8));
       if (freq < SDR_MIN_FREQ_MHZ) freq = SDR_MIN_FREQ_MHZ;
@@ -1456,9 +1077,6 @@ static void dispatchBinaryCommand(const uint8_t* frame) {
       sdrCfg.dspFlags = p3;
       sdrCfg.targetFps = p4;
       sdrStreamDirty = true;
-      if (p1 != SDR_STREAM_STOP && laCaptureActive) {
-        laAbortRequested = true;
-      }
       if (core1TaskHandle != nullptr) xTaskNotifyGive(core1TaskHandle);
       break;
     case CMD_SDR_SWEEP: {
@@ -1642,7 +1260,7 @@ static void Protocol_Core0_Task(void* arg) {
       shouldEmit = true;
     }
 
-    if (shouldEmit && sdrCfg.streamMode == SDR_STREAM_STOP && !laCaptureActive) {
+    if (shouldEmit && sdrCfg.streamMode == SDR_STREAM_STOP) {
       lastPhysical = curPhysical;
       lastTelemetryUs = nowUs;
       sendTelemetryFrame();
@@ -1677,9 +1295,7 @@ void setup() {
   initWifiRadioSubsystem();
   sdrApplyTune(2437, 0, 0xFF);
 
-  // Allocate LA + SDR dynamic buffers safely outside reserved 0x3FCD0000..0x3FCDFFFF
-  ringBuf       = (uint8_t*)allocPreferredCaps(MAX_SAMPLES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);
-  captureBuffer = (uint8_t*)allocPreferredCaps(MAX_SAMPLES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);
+  // Allocate SDR dynamic buffers safely outside reserved 0x3FCD0000..0x3FCDFFFF
   sdrIqI        = (int16_t*)allocPreferredCaps(RF_DUMP_MAX_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);
   sdrIqQ        = (int16_t*)allocPreferredCaps(RF_DUMP_MAX_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);
   sdrFftRe      = (float*)allocPreferredCaps(MAX_FFT_BINS * sizeof(float), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);

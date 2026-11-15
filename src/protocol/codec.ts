@@ -1,22 +1,17 @@
 import {
   BoardCapabilitiesFrame,
   BoardCapabilityPin,
-  CaptureDataFrame,
   CHANNELS,
   CMD_BOOTLOADER,
   CMD_FORCE_BATCH_STATE,
   CMD_FORCE_PIN_STATE,
   CMD_GET_CAPS,
-  CMD_LA_ABORT,
-  CMD_LA_CAPTURE,
   CMD_PING_STATUS,
   CMD_SDR_STREAM_CTRL,
   CMD_SDR_SWEEP_CFG,
   CMD_SDR_TUNE,
   CMD_SET_SIG_GEN,
   DecodedFrame,
-  LA_FLAG_ABORTED_EARLY,
-  LA_FLAG_TRIGGERED,
   PROTOCOL_SYNC_0,
   PROTOCOL_SYNC_1,
   SDR_FLAG_ADC_CLIP,
@@ -31,7 +26,6 @@ import {
   SdrSpectrumFrame,
   StatusTelemetryFrame,
   TYPE_BOARD_CAPABILITIES,
-  TYPE_LA_CAPTURE_DATA,
   TYPE_SDR_RAW_IQ_FRAME,
   TYPE_SDR_SPECTRUM_FRAME,
   TYPE_STATUS_TELEMETRY,
@@ -120,25 +114,6 @@ export function buildSetSigGenCmd(
   freqLow = 0,
 ): Uint8Array {
   return buildCommandFrame(CMD_SET_SIG_GEN, ch, dividerCode, freqHigh, freqLow);
-}
-
-export function buildLaCaptureCmd(
-  rateId: number,
-  trigCh: number,
-  trigEdgeAndPreRatio: number,
-  blocksKb: number,
-): Uint8Array {
-  return buildCommandFrame(
-    CMD_LA_CAPTURE,
-    rateId,
-    trigCh,
-    trigEdgeAndPreRatio,
-    blocksKb,
-  );
-}
-
-export function buildLaAbortCmd(): Uint8Array {
-  return buildCommandFrame(CMD_LA_ABORT);
 }
 
 export function buildBootloaderCmd(): Uint8Array {
@@ -234,29 +209,6 @@ export function decodeStatusTelemetry(payload: Uint8Array): StatusTelemetryFrame
     forcedLevel: payload[2],
     forcedLevels: payload[2],
     contentionMask: payload[3],
-    timestampMs: Date.now(),
-  };
-}
-
-export function decodeCaptureData(payload: Uint8Array): CaptureDataFrame | null {
-  if (payload.byteLength < 8) return null;
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-  const rateHz = view.getUint32(0, true);
-  const trigIndex = view.getUint16(4, true);
-  const flags = view.getUint16(6, true);
-  const triggered = (flags & LA_FLAG_TRIGGERED) !== 0;
-  const samples = payload.slice(8);
-  return {
-    type: 'capture',
-    rateHz,
-    sampleRateHz: rateHz,
-    trigIndex,
-    triggerIndex: trigIndex,
-    flags,
-    triggered,
-    autoTriggered: !triggered,
-    abortedEarly: (flags & LA_FLAG_ABORTED_EARLY) !== 0,
-    samples,
     timestampMs: Date.now(),
   };
 }
@@ -388,8 +340,6 @@ export function decodeResponsePayload(
   switch (typeId) {
     case TYPE_STATUS_TELEMETRY:
       return decodeStatusTelemetry(payload);
-    case TYPE_LA_CAPTURE_DATA:
-      return decodeCaptureData(payload);
     case TYPE_BOARD_CAPABILITIES:
       return decodeBoardCapabilities(payload);
     case TYPE_SDR_SPECTRUM_FRAME:

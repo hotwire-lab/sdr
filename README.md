@@ -1,6 +1,8 @@
-# HotWire SDR + 8-Channel Logic Analyzer (`HotWire-SDR`)
+# HotWire SDR - 1.84–2.79 GHz RF Spectrum Analyzer (`HotWire-SDR`)
 
-A zero-install **Progressive Web App (PWA)** and high-performance **dual-core ESP32-S3 firmware** providing a **1.84–2.79 GHz RF Spectrum Analyzer**, **scrolling Waterfall**, **Raw Baseband I/Q Constellation Inspector**, **8-Channel Digital Logic Analyzer**, **Tri-State Force-I/O Controller**, **xterm.js Serial Terminal**, and in-browser **esptool-js Web Flasher** for the **Seeed Studio XIAO ESP32-S3**.
+A zero-install **Progressive Web App (PWA)** and high-performance **ESP32-S3 firmware** providing a **1.84–2.79 GHz RF Spectrum Analyzer**, **scrolling Waterfall**, **Raw Baseband I/Q Constellation Inspector**, **Tri-State Force-I/O Controller (`D0–D7`)**, **xterm.js Serial Terminal**, and in-browser **esptool-js Web Flasher** for the **Seeed Studio XIAO ESP32-S3**.
+
+> **Note:** The Logic Analyzer has been completely decoupled into its own dedicated project at [HotWire-Logic-Analyzer](https://github.com/kavierim/HotWire-Logic-Analyzer).
 
 **Live Web App (GitHub Pages):** https://kavierim.github.io/HotWire-SDR/
 
@@ -9,7 +11,7 @@ A zero-install **Progressive Web App (PWA)** and high-performance **dual-core ES
 HotWire SDR provides full **in-browser firmware flashing** directly from Chromium (Chrome, Edge, Opera) via the **Web Serial API** and **`esptool-js`**:
 1. Connect Seeed Studio XIAO ESP32-S3 via USB.
 2. Open the **Console & Flasher** drawer at the bottom and switch to **Web Flasher (esptool-js)**.
-3. Select **XIAO ESP32-S3 (SDR + LA)**.
+3. Select **Seeed Studio XIAO ESP32-S3**.
 4. Click **Flash Firmware** — the web app automatically sends the `0xF0` ROM bootloader command, connects via `esptool-js`, flashes the bundled bootloader, partition table, boot_app0, and application firmware, performs a hardware reset, and reconnects to the live SDR stream.
 5. You can also flash custom `.bin` builds using the **Custom .bin...** button.
 
@@ -25,11 +27,11 @@ HotWire SDR provides full **in-browser firmware flashing** directly from Chromiu
   - Host DSP enhancements: `DC Spike Notch`, `Spur Blanker`, `Mean Avg` vs `Max-Hold Burst` detector, and `0x32` Wideband Multi-Step Sweep.
 - **Raw Baseband I/Q Inspector (`0x85`):**
   - Captures single-shot or continuous signed 8-bit I/Q streams for time-domain envelope analysis and 2D constellation visualization.
-- **Dual-Core Coexistence with Force-I/O & Logic Analyzer:**
-  - Core 0 handles USB CDC protocol parsing, real-time Force-I/O (`D0–D7`) with 20 ms short-circuit contention guard, and live inline toggle strip inside the SDR workspace.
-  - Mode Switcher (`Logic Analyzer (8ch)` ↔ `RF Spectrum (SDR)`) arbitrates Core 1 safely between 20 MHz 8-ch digital captures and RF spectrum streaming.
+- **Dedicated Dual-Core Architecture with Force-I/O Stimulation:**
+  - Core 0 handles USB CDC protocol parsing, real-time Force-I/O (`D0–D7`) with 20 ms short-circuit contention guard, and live inline toggle strip inside the SDR workspace for RF excitation / digital control.
+  - Core 1 runs the dedicated high-speed RF Dump acquisition, FFT windowing, and streaming pipeline with zero contention.
 - **Offline Demo Mode & Browser Flashing:**
-  - Includes a full client-side RF + Logic Analyzer simulator (Wi-Fi, BLE, DECT 1.9 GHz, LTE B7, plus live Force-I/O-to-RF coupling) and bundled firmware flashing via Web Serial (`esptool-js`).
+  - Includes a full client-side RF spectrum & I/Q simulator (Wi-Fi, BLE, DECT 1.9 GHz, LTE B7, plus live Force-I/O-to-RF coupling) and bundled firmware flashing via Web Serial (`esptool-js`).
 
 ## Development & Verification
 
@@ -45,5 +47,5 @@ npm run build
 
 Sketch: `firmware/HotWire_SDR_XIAO_ESP32S3/HotWire_SDR_XIAO_ESP32S3.ino`
 
-- FQBN: `esp32:esp32:XIAO_ESP32S3:CDCOnBoot=cdc,PSRAM=opi`
+- FQBN: `esp32:esp32:XIAO_ESP32S3:CDCOnBoot=default,PSRAM=opi`
 - Compiled binaries are bundled in `public/firmware/` for zero-install Web Flasher deployment.

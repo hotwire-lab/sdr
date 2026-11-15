@@ -10,18 +10,13 @@ import {
   CMD_BATCH_FORCE,
   CMD_BOOTLOADER,
   CMD_GET_CAPS,
-  CMD_LA_ABORT,
-  CMD_LA_CAPTURE,
   CMD_PING_STATUS,
   CMD_PIN_FORCE,
   CMD_SDR_STREAM_CTRL,
   CMD_SDR_SWEEP_CFG,
   CMD_SDR_TUNE,
-  LA_FLAG_ABORTED_EARLY,
-  LA_FLAG_TRIGGERED,
   PROTOCOL_SYNC_0,
   PROTOCOL_SYNC_1,
-  RATE_PRESETS,
   SDR_DSP_FLAG_DC_CANCEL,
   SDR_FLAG_ADC_CLIP,
   SDR_FLAG_LO_DIV_ACTIVE,
@@ -32,7 +27,6 @@ import {
   SDR_STREAM_SINGLE_IQ,
   SDR_STREAM_STOP,
   TYPE_BOARD_CAPABILITIES,
-  TYPE_LA_CAPTURE_DATA,
   TYPE_SDR_RAW_IQ_FRAME,
   TYPE_SDR_SPECTRUM_FRAME,
   TYPE_STATUS_TELEMETRY,
@@ -174,9 +168,8 @@ export class SerialTransport {
   private webUsbDesc: CdcEndpointDescriptor | null = null;
   private webUsbReadActive = false;
 
-  // Demo hardware simulator state (LA + Force-I/O + SDR RF)
+  // Demo hardware simulator state (Force-I/O + SDR RF)
   private demoTimer: number | null = null;
-  private demoCaptureTimer: number | null = null;
   private demoSdrTimer: number | null = null;
   private demoForceEnable = 0x00;
   private demoForcedLevel = 0x00;
@@ -186,14 +179,6 @@ export class SerialTransport {
   private demoShortSimPin: number | null = null;
   private demoTick = 0;
   private demoAsciiLine = '';
-  private demoCaptureState: {
-    rateId: number;
-    trigCh: number;
-    edge: number;
-    preTrigRatio: number;
-    totalSamples: number;
-    startMs: number;
-  } | null = null;
 
   private demoSdrCenterMhz = 2437;
   private demoSdrRateBwCode = 0;
@@ -420,7 +405,6 @@ export class SerialTransport {
     this.demoShortSimPin = null;
     this.demoTick = 0;
     this.demoAsciiLine = '';
-    this.demoCaptureState = null;
 
     this.demoSdrCenterMhz = 2437;
     this.demoSdrRateBwCode = 0;
@@ -436,7 +420,7 @@ export class SerialTransport {
     this.updateSnapshot({
       status: 'connected',
       transport: 'demo',
-      deviceName: 'HotWire SDR + LA (Demo)',
+      deviceName: 'HotWire SDR (Demo Simulator)',
       vidPid: '303A:1001',
       errorMessage: null,
     });
@@ -718,10 +702,6 @@ export class SerialTransport {
       window.clearInterval(this.demoTimer);
       this.demoTimer = null;
     }
-    if (this.demoCaptureTimer !== null) {
-      window.clearTimeout(this.demoCaptureTimer);
-      this.demoCaptureTimer = null;
-    }
     if (this.demoSdrTimer !== null) {
       window.clearInterval(this.demoSdrTimer);
       this.demoSdrTimer = null;
@@ -886,50 +866,6 @@ export class SerialTransport {
           this.demoPullDownMask &= ~p1;
           this.demoContentionMask = 0;
           this.emitDemoTelemetry();
-          return;
-
-        case CMD_LA_CAPTURE: {
-          // Stop any active SDR stream cleanly while LA is capturing
-          this.stopDemoSdrTimer();
-          this.demoSdrStreamMode = SDR_STREAM_STOP;
-
-          if (this.demoCaptureTimer !== null) {
-            window.clearTimeout(this.demoCaptureTimer);
-          }
-          const rateId = Math.min(RATE_PRESETS.length - 1, Math.max(0, p1));
-          const trigCh = p2;
-          const edge = p3 & 0x03;
-          const preRatio = (p3 >> 4) & 0x03;
-          const blocksKb = Math.min(32, Math.max(1, p4));
-          const totalSamples = blocksKb * 1024;
-          const rateHz = RATE_PRESETS[rateId].hz;
-          const durationMs = Math.min(
-            1800,
-            Math.max(40, Math.round((totalSamples / rateHz) * 1000)),
-          );
-
-          this.demoCaptureState = {
-            rateId,
-            trigCh,
-            edge,
-            preTrigRatio: preRatio,
-            totalSamples,
-            startMs: performance.now(),
-          };
-          this.demoCaptureTimer = window.setTimeout(() => {
-            this.finishDemoCapture(false);
-          }, durationMs);
-          return;
-        }
-
-        case CMD_LA_ABORT:
-          if (this.demoCaptureState) {
-            if (this.demoCaptureTimer !== null) {
-              window.clearTimeout(this.demoCaptureTimer);
-              this.demoCaptureTimer = null;
-            }
-            this.finishDemoCapture(true);
-          }
           return;
 
         case CMD_SDR_TUNE: {
@@ -1368,172 +1304,6 @@ export class SerialTransport {
     this.emitBytes(
       encodeResponseFrame(TYPE_BOARD_CAPABILITIES, new TextEncoder().encode(json)),
     );
-  }
-
-  private finishDemoCapture(aborted: boolean): void {
-    const st = this.demoCaptureState;
-    if (!st) return;
-    this.demoCaptureState = null;
-
-    const rateHz = RATE_PRESETS[st.rateId].hz;
-    const sampleCount = aborted
-      ? Math.max(64, Math.min(st.totalSamples, Math.round(st.totalSamples * 0.25)))
-      : st.totalSamples;
-
-    let trigIndex = 0;
-    if (st.trigCh < 8) {
-      if (st.preTrigRatio === 1) trigIndex = Math.floor(sampleCount / 4);
-      else if (st.preTrigRatio === 2) trigIndex = Math.floor(sampleCount / 2);
-      else if (st.preTrigRatio === 3) trigIndex = Math.floor((sampleCount * 3) / 4);
-    }
-
-    const flags =
-      (aborted ? LA_FLAG_ABORTED_EARLY : 0) |
-      (st.trigCh < 8 ? LA_FLAG_TRIGGERED : 0);
-    const payload = new Uint8Array(8 + sampleCount);
-    const view = new DataView(payload.buffer);
-    view.setUint32(0, rateHz, true);
-    view.setUint16(4, trigIndex, true);
-    view.setUint16(6, flags, true);
-
-    this.synthesizeDemoSamples(
-      payload.subarray(8),
-      sampleCount,
-      rateHz,
-      trigIndex,
-      st,
-    );
-    this.emitBytes(encodeResponseFrame(TYPE_LA_CAPTURE_DATA, payload));
-  }
-
-  private synthesizeDemoSamples(
-    out: Uint8Array,
-    sampleCount: number,
-    rateHz: number,
-    trigIndex: number,
-    st: { trigCh: number; edge: number },
-  ): void {
-    const pwmPeriod = 40;
-    const pwmShift =
-      st.trigCh === 7 ? (st.edge === 0 ? 10 : 0) - (trigIndex % pwmPeriod) : 0;
-    for (let i = 0; i < sampleCount; i++) {
-      const phase = (((i + pwmShift) % pwmPeriod) + pwmPeriod) % pwmPeriod;
-      const pwmBit = phase < 10 ? 1 << 7 : 0;
-      out[i] = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | pwmBit;
-    }
-
-    // 1. D0..D3 -> SPI Mode 0 bursts
-    const halfClk = Math.max(2, Math.min(12, Math.round(sampleCount / 512)));
-    const mosiBytes = [0xa5, 0x5a, 0x48, 0x57];
-    const misoBytes = [0x11, 0x22, 0x33, 0x44];
-    const csLead = halfClk * 2;
-    const spiFrameLen = csLead * 2 + mosiBytes.length * 8 * halfClk * 2;
-    const spiBurstSpan = spiFrameLen + halfClk * 24;
-    let spiStart =
-      st.trigCh <= 3 ? trigIndex : Math.min(sampleCount - 1, halfClk * 8);
-    while (spiStart - spiBurstSpan >= halfClk * 4) spiStart -= spiBurstSpan;
-
-    for (let origin = spiStart; origin < sampleCount; origin += spiBurstSpan) {
-      let p = origin;
-      const setSpiSpan = (len: number, val: number) => {
-        const end = Math.min(sampleCount, p + len);
-        const masked = val & 0x0f;
-        for (let s = Math.max(0, p); s < end; s++) {
-          out[s] = (out[s] & ~0x0f) | masked;
-        }
-        p += len;
-      };
-      setSpiSpan(csLead, 0);
-      for (let idx = 0; idx < mosiBytes.length; idx++) {
-        for (let b = 7; b >= 0; b--) {
-          const mosi = (mosiBytes[idx] >> b) & 1;
-          const miso = (misoBytes[idx] >> b) & 1;
-          const dataBits = (mosi << 1) | (miso << 2);
-          setSpiSpan(halfClk, dataBits | 0);
-          setSpiSpan(halfClk, dataBits | 1);
-        }
-      }
-      setSpiSpan(csLead, 0);
-    }
-
-    // 2. D4..D5 -> I2C bursts
-    const q = Math.max(2, Math.min(12, Math.round(sampleCount / 640)));
-    const i2cBytes = [0x3c << 1, 0x00, 0xae, 0xaf];
-    const i2cBurstSpan = q * (i2cBytes.length * 9 * 4 + 32);
-    let i2cStart =
-      st.trigCh === 4 || st.trigCh === 5
-        ? trigIndex
-        : Math.min(sampleCount - 1, q * 8);
-    while (i2cStart - i2cBurstSpan >= q * 4) i2cStart -= i2cBurstSpan;
-
-    for (let origin = i2cStart; origin < sampleCount; origin += i2cBurstSpan) {
-      let p = origin;
-      const pushI2c = (scl: number, sda: number, len = q) => {
-        const val = ((scl & 1) << 4) | ((sda & 1) << 5);
-        const end = Math.min(sampleCount, p + len);
-        for (let s = Math.max(0, p); s < end; s++) {
-          out[s] = (out[s] & ~0x30) | val;
-        }
-        p += len;
-      };
-      pushI2c(1, 0, q * 2);
-      pushI2c(0, 0, q);
-      for (const byteVal of i2cBytes) {
-        for (let b = 7; b >= 0; b--) {
-          const bit = (byteVal >> b) & 1;
-          pushI2c(0, bit, q);
-          pushI2c(1, bit, q * 2);
-          pushI2c(0, bit, q);
-        }
-        pushI2c(0, 0, q);
-        pushI2c(1, 0, q * 2);
-        pushI2c(0, 0, q);
-      }
-      pushI2c(0, 0, q);
-      pushI2c(1, 0, q * 2);
-      pushI2c(1, 1, q * 2);
-    }
-
-    // 3. D6 -> UART 115200 8N1 bursts ("HotWire!\r\n")
-    const bitSamples = Math.max(2, rateHz / 115200);
-    const message = 'HotWire!\r\n';
-    const byteSpan = 10.5 * bitSamples;
-    const uartBurstSpan = Math.round(message.length * byteSpan + 40 * bitSamples);
-    let uartStart =
-      st.trigCh === 6
-        ? trigIndex
-        : Math.min(sampleCount - 1, Math.round(bitSamples * 8));
-    while (uartStart - uartBurstSpan >= Math.round(bitSamples * 4)) {
-      uartStart -= uartBurstSpan;
-    }
-
-    for (let burstOrigin = uartStart; burstOrigin < sampleCount; burstOrigin += uartBurstSpan) {
-      for (let charIdx = 0; charIdx < message.length; charIdx++) {
-        const byteVal = message.charCodeAt(charIdx);
-        const charStart = burstOrigin + charIdx * byteSpan;
-        for (let bitIdx = 0; bitIdx < 10; bitIdx++) {
-          const logicalBit =
-            bitIdx === 0 ? 0 : bitIdx === 9 ? 1 : (byteVal >> (bitIdx - 1)) & 1;
-          const s0 = Math.max(0, Math.round(charStart + bitIdx * bitSamples));
-          const s1 = Math.min(
-            sampleCount,
-            Math.round(charStart + (bitIdx + 1) * bitSamples),
-          );
-          for (let s = s0; s < s1; s++) {
-            if (logicalBit === 0) out[s] &= ~(1 << 6);
-            else out[s] |= 1 << 6;
-          }
-        }
-      }
-    }
-
-    if (this.demoForceEnable !== 0) {
-      for (let i = 0; i < sampleCount; i++) {
-        out[i] =
-          (out[i] & ~this.demoForceEnable) |
-          (this.demoForcedLevel & this.demoForceEnable);
-      }
-    }
   }
 
   private emitBytes(bytes: Uint8Array): void {
