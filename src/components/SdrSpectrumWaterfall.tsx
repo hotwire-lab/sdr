@@ -564,7 +564,7 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
           />
           {!trace && (
             <div className="sdr-empty-overlay">
-              <p>Connect XIAO ESP32-S3 or click Demo, then press Start RF.</p>
+              <p>Connect XIAO ESP32-S3 / ESP32-C6 or click Demo, then press Start RF.</p>
             </div>
           )}
         </div>

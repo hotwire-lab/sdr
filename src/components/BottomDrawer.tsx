@@ -219,7 +219,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
         await new Promise((r) => setTimeout(r, 150));
         chip = await esploader.main('no_reset');
       }
-      appendLog(`Connected to bootloader chip: ${chip || 'ESP32-S3'}`);
+      appendLog(`Connected to bootloader chip: ${chip || boardProfile.label}`);
 
       appendLog('[3/4] Writing flash memory...');
       const totalBytes = fileArray.reduce((acc, f) => acc + f.data.byteLength, 0);

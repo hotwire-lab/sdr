@@ -118,7 +118,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             type="button"
             className={`btn btn-ghost ${drawerOpen ? 'active' : ''}`}
             onClick={onToggleDrawer}
-            title="Open ESP32-S3 Web Flasher (esptool-js)"
+            title="Open XIAO ESP32-S3 / ESP32-C6 Web Flasher (esptool-js)"
           >
             Web Flasher
           </button>
