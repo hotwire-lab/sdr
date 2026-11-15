@@ -1,4 +1,4 @@
-name: Deploy HotWire SDR & Logic Analyzer PWA to GitHub Pages
+name: Deploy HotWire SDR RF Spectrum Analyzer PWA to GitHub Pages
 
 on:
   push:
