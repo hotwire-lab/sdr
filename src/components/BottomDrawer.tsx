@@ -218,20 +218,43 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
 
       await esploader.writeFlash(flashOptions);
 
-      appendLog('[4/4] Flashing complete! Performing hardware reset...');
+      appendLog('[4/4] Flashing complete! Triggering ESP32-S3 RTC watchdog reset...');
+      let watchdogTriggered = false;
       try {
-        await esploader.after('hard_reset');
+        // ESP32-S3 USB-Serial/JTAG often ignores/drops RTS pulses during reset;
+        // triggering the internal RTC Watchdog forces a clean SoC reboot out of download mode.
+        const RTC_CNTL_WDTCONFIG0_REG = 0x60008098;
+        const RTC_CNTL_WDTCONFIG1_REG = 0x6000809c;
+        const RTC_CNTL_WDTWPROTECT_REG = 0x600080b0;
+        const RTC_CNTL_WDT_WKEY = 0x50d83aa1;
+
+        await esploader.writeReg(RTC_CNTL_WDTWPROTECT_REG, RTC_CNTL_WDT_WKEY);
+        await esploader.writeReg(RTC_CNTL_WDTCONFIG1_REG, 2000);
+        const curCfg0 = await esploader.readReg(RTC_CNTL_WDTCONFIG0_REG);
+        // Bit 31: WDT_EN, Bits 30:28: WDT_STG0 = 3 (System Reset)
+        const nextCfg0 = ((curCfg0 & 0x0fffffff) | 0xb0000000) >>> 0;
+        await esploader.writeReg(RTC_CNTL_WDTCONFIG0_REG, nextCfg0);
+        watchdogTriggered = true;
+        await new Promise((r) => setTimeout(r, 150));
       } catch {
-        // ignore
+        // Expected if WDT resets the SoC before the register write ACK returns
       }
-      try {
-        await espTransport.setDTR(false);
-        await espTransport.setRTS(true);
-        await new Promise((r) => setTimeout(r, 100));
-        await espTransport.setRTS(false);
-        await new Promise((r) => setTimeout(r, 80));
-      } catch {
-        // ignore
+
+      if (!watchdogTriggered) {
+        try {
+          await esploader.after('hard_reset');
+        } catch {
+          // ignore
+        }
+        try {
+          await espTransport.setDTR(false);
+          await espTransport.setRTS(true);
+          await new Promise((r) => setTimeout(r, 100));
+          await espTransport.setRTS(false);
+          await new Promise((r) => setTimeout(r, 80));
+        } catch {
+          // ignore
+        }
       }
       try {
         await espTransport.disconnect();
@@ -241,9 +264,15 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
 
       setFlashProgress(100);
       appendLog('Flash complete! Reconnecting to HotWire...');
-      await new Promise((r) => setTimeout(r, 900));
+      await new Promise((r) => setTimeout(r, 1200));
       serialTransport.setAutoReconnectPaused(false);
-      await serialTransport.connectWebSerialPort(port);
+      try {
+        await serialTransport.connectWebSerialPort(port);
+      } catch {
+        // Windows USB-Serial/JTAG may still be re-enumerating after watchdog reset
+        await new Promise((r) => setTimeout(r, 900));
+        await serialTransport.connectWebSerialPort(port);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setFlashError(
