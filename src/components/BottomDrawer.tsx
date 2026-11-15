@@ -4,12 +4,32 @@ import { buildBootloaderCmd } from '../protocol/codec';
 import { BoardCapabilitiesFrame } from '../protocol/types';
 import { SerialTransport, TransportSnapshot } from '../transport/SerialTransport';
 
-const BOARD_PROFILE = {
-  label: 'Seeed Studio XIAO ESP32-S3',
-  prefix: 'HotWire_SDR_XIAO_ESP32S3.ino',
-  bootloaderOffset: 0x0,
-  flashSize: '8MB' as const,
-  hint: '1.84–2.79 GHz RF Spectrum Analyzer',
+type BoardId = 'esp32s3' | 'esp32c6';
+
+const BOARD_PROFILES: Record<
+  BoardId,
+  {
+    label: string;
+    prefix: string;
+    bootloaderOffset: number;
+    flashSize: '8MB' | '4MB';
+    hint: string;
+  }
+> = {
+  esp32s3: {
+    label: 'Seeed Studio XIAO ESP32-S3',
+    prefix: 'HotWire_SDR_XIAO_ESP32S3.ino',
+    bootloaderOffset: 0x0,
+    flashSize: '8MB',
+    hint: '1.84–2.79 GHz RF Spectrum Analyzer',
+  },
+  esp32c6: {
+    label: 'Seeed Studio XIAO ESP32-C6',
+    prefix: 'HotWire_SDR_XIAO_ESP32C6.ino',
+    bootloaderOffset: 0x0,
+    flashSize: '4MB',
+    hint: '1.84–2.79 GHz RF Spectrum Analyzer (External U.FL Antenna)',
+  },
 };
 
 export interface BottomDrawerProps {
@@ -27,6 +47,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   caps,
   serialTransport,
 }) => {
+  const [selectedBoard, setSelectedBoard] = useState<BoardId>('esp32s3');
   const [flashLogs, setFlashLogs] = useState<string[]>([]);
   const [flashProgress, setFlashProgress] = useState<number>(0);
   const [flashing, setFlashing] = useState<boolean>(false);
@@ -35,6 +56,16 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [flashOffset, setFlashOffset] = useState<'full' | '0x10000' | '0x0'>('full');
   const logContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const boardProfile = BOARD_PROFILES[selectedBoard];
+
+  useEffect(() => {
+    if (caps?.board?.toUpperCase().includes('C6')) {
+      setSelectedBoard('esp32c6');
+    } else if (caps?.board?.toUpperCase().includes('S3')) {
+      setSelectedBoard('esp32s3');
+    }
+  }, [caps?.board]);
 
   useEffect(() => {
     if (logContainerRef.current) {
@@ -65,13 +96,13 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
     return [
       {
         label: 'bootloader',
-        address: BOARD_PROFILE.bootloaderOffset,
-        url: `${base}${BOARD_PROFILE.prefix}.bootloader.bin`,
+        address: boardProfile.bootloaderOffset,
+        url: `${base}${boardProfile.prefix}.bootloader.bin`,
       },
       {
         label: 'partitions',
         address: 0x8000,
-        url: `${base}${BOARD_PROFILE.prefix}.partitions.bin`,
+        url: `${base}${boardProfile.prefix}.partitions.bin`,
       },
       {
         label: 'boot_app0',
@@ -81,10 +112,10 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       {
         label: 'firmware',
         address: 0x10000,
-        url: `${base}${BOARD_PROFILE.prefix}.bin`,
+        url: `${base}${boardProfile.prefix}.bin`,
       },
     ];
-  }, []);
+  }, [boardProfile]);
 
   const handleFlash = async (forceOtherPort = false) => {
     if (flashing) return;
@@ -102,7 +133,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
     let port = forceOtherPort ? null : serialTransport.getActiveWebSerialPort();
 
     try {
-      appendLog(`[1/4] Preparing to flash ${BOARD_PROFILE.label}...`);
+      appendLog(`[1/4] Preparing to flash ${boardProfile.label}...`);
       if (!forceOtherPort && transportSnapshot.transport === 'webserial' && port) {
         appendLog('Sending 0xF0 bootloader entry command & closing app transport...');
         try {
@@ -113,7 +144,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
         await new Promise((r) => setTimeout(r, 250));
         await serialTransport.disconnect(true);
       } else {
-        appendLog('Select the ESP32-S3 USB-JTAG / CDC COM port in the browser prompt...');
+        appendLog('Select the XIAO ESP32 USB-JTAG / CDC COM port in the browser prompt...');
         port = await navigator.serial.requestPort();
       }
 
@@ -145,9 +176,9 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
           fileArray.push({ data: buf, address: item.address });
         }
       } else {
-        appendLog(`Downloading bundled app firmware (${BOARD_PROFILE.prefix}.bin)...`);
+        appendLog(`Downloading bundled app firmware (${boardProfile.prefix}.bin)...`);
         const base = `${import.meta.env.BASE_URL}firmware/`;
-        const appUrl = `${base}${BOARD_PROFILE.prefix}.bin`;
+        const appUrl = `${base}${boardProfile.prefix}.bin`;
         const resp = await fetch(appUrl);
         if (!resp.ok) {
           throw new Error(`Missing binary ${appUrl} (${resp.status}).`);
@@ -155,7 +186,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
         const buf = new Uint8Array(await resp.arrayBuffer());
         const addr = flashOffset === '0x0' ? 0x0 : 0x10000;
         fileArray.push({ data: buf, address: addr });
-        appendLog(`Loaded ${BOARD_PROFILE.prefix}.bin (${buf.byteLength} bytes) -> 0x${addr.toString(16)}`);
+        appendLog(`Loaded ${boardProfile.prefix}.bin (${buf.byteLength} bytes) -> 0x${addr.toString(16)}`);
       }
 
       appendLog('[2/4] Connecting to ROM bootloader via esptool-js...');
@@ -196,7 +227,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
 
       const flashOptions: FlashOptions = {
         fileArray,
-        flashSize: BOARD_PROFILE.flashSize,
+        flashSize: boardProfile.flashSize,
         flashMode: isBundledFull ? 'dio' : 'keep',
         flashFreq: isBundledFull ? '80m' : 'keep',
         eraseAll: false,
@@ -218,32 +249,34 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
 
       await esploader.writeFlash(flashOptions);
 
-      appendLog('[4/4] Flashing complete! Triggering ESP32-S3 RTC watchdog reset...');
+      appendLog('[4/4] Flashing complete! Triggering hardware/watchdog reset...');
       let watchdogTriggered = false;
-      try {
-        // Clear FORCE_DOWNLOAD_BOOT so the ROM bootloader doesn't re-enter download mode
-        const RTC_CNTL_OPTION1_REG = 0x6000812c;
-        const RTC_CNTL_WDTCONFIG0_REG = 0x60008098;
-        const RTC_CNTL_WDTCONFIG1_REG = 0x6000809c;
-        const RTC_CNTL_WDTFEED_REG = 0x600080a8;
-        const RTC_CNTL_WDTWPROTECT_REG = 0x600080b0;
-        const RTC_CNTL_WDT_WKEY = 0x50d83aa1;
+      if (selectedBoard === 'esp32s3') {
+        try {
+          // Clear FORCE_DOWNLOAD_BOOT so the ROM bootloader doesn't re-enter download mode
+          const RTC_CNTL_OPTION1_REG = 0x6000812c;
+          const RTC_CNTL_WDTCONFIG0_REG = 0x60008098;
+          const RTC_CNTL_WDTCONFIG1_REG = 0x6000809c;
+          const RTC_CNTL_WDTFEED_REG = 0x600080a8;
+          const RTC_CNTL_WDTWPROTECT_REG = 0x600080b0;
+          const RTC_CNTL_WDT_WKEY = 0x50d83aa1;
 
-        await esploader.writeReg(RTC_CNTL_OPTION1_REG, 0);
-        await esploader.writeReg(RTC_CNTL_WDTWPROTECT_REG, RTC_CNTL_WDT_WKEY);
-        await esploader.writeReg(RTC_CNTL_WDTCONFIG1_REG, 2000);
-        const curCfg0 = await esploader.readReg(RTC_CNTL_WDTCONFIG0_REG);
-        // Bit 31: WDT_EN, Bits 30:28: WDT_STG0 = 3 (System Reset), Bits 20:18: SYS_RESET_LENGTH = 7
-        const nextCfg0 = ((curCfg0 & 0x0fe3ffff) | 0xb01c0000) >>> 0;
-        await esploader.writeReg(RTC_CNTL_WDTCONFIG0_REG, nextCfg0);
-        await esploader.writeReg(RTC_CNTL_WDTFEED_REG, 0x80000000);
-        watchdogTriggered = true;
-        await new Promise((r) => setTimeout(r, 150));
-      } catch (wdtErr) {
-        if (!watchdogTriggered) {
-          appendLog(
-            `Watchdog reset note: ${wdtErr instanceof Error ? wdtErr.message : String(wdtErr)}`,
-          );
+          await esploader.writeReg(RTC_CNTL_OPTION1_REG, 0);
+          await esploader.writeReg(RTC_CNTL_WDTWPROTECT_REG, RTC_CNTL_WDT_WKEY);
+          await esploader.writeReg(RTC_CNTL_WDTCONFIG1_REG, 2000);
+          const curCfg0 = await esploader.readReg(RTC_CNTL_WDTCONFIG0_REG);
+          // Bit 31: WDT_EN, Bits 30:28: WDT_STG0 = 3 (System Reset), Bits 20:18: SYS_RESET_LENGTH = 7
+          const nextCfg0 = ((curCfg0 & 0x0fe3ffff) | 0xb01c0000) >>> 0;
+          await esploader.writeReg(RTC_CNTL_WDTCONFIG0_REG, nextCfg0);
+          await esploader.writeReg(RTC_CNTL_WDTFEED_REG, 0x80000000);
+          watchdogTriggered = true;
+          await new Promise((r) => setTimeout(r, 150));
+        } catch (wdtErr) {
+          if (!watchdogTriggered) {
+            appendLog(
+              `Watchdog reset note: ${wdtErr instanceof Error ? wdtErr.message : String(wdtErr)}`,
+            );
+          }
         }
       }
 
@@ -295,17 +328,17 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   if (!open) return null;
 
   return (
-    <section className="bottom-drawer" aria-label="ESP32-S3 Web Flasher">
+    <section className="bottom-drawer" aria-label="XIAO ESP32 Web Flasher">
       <div className="drawer-header">
         <div className="drawer-tabs">
           <span className="drawer-title">Web Flasher (esptool-js)</span>
           <span className="flasher-board-badge">
-            {BOARD_PROFILE.label} • {BOARD_PROFILE.flashSize}
+            {boardProfile.label} • {boardProfile.flashSize}
           </span>
         </div>
 
         <span className="flasher-hint">
-          {caps ? `Connected: ${caps.board} (${caps.firmware})` : BOARD_PROFILE.hint}
+          {caps ? `Connected: ${caps.board} (${caps.firmware})` : boardProfile.hint}
         </span>
 
         <button type="button" className="btn-mini" onClick={onClose}>
@@ -316,6 +349,19 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       <div className="drawer-body">
         <div className="flasher-pane">
           <div className="flasher-controls">
+            <div className="control-group">
+              <label htmlFor="flash-board">Board</label>
+              <select
+                id="flash-board"
+                value={selectedBoard}
+                disabled={flashing}
+                onChange={(e) => setSelectedBoard(e.target.value as BoardId)}
+              >
+                <option value="esp32s3">XIAO ESP32-S3 (8MB)</option>
+                <option value="esp32c6">XIAO ESP32-C6 (4MB)</option>
+              </select>
+            </div>
+
             <button
               type="button"
               className="btn btn-accent"
@@ -375,7 +421,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
                   <span>
                     {selectedFile
                       ? selectedFile.name
-                      : `Choose .bin (${BOARD_PROFILE.prefix})`}
+                      : `Choose .bin (${boardProfile.prefix})`}
                   </span>
                   <input
                     type="file"
@@ -419,7 +465,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
           <div className="flasher-log" ref={logContainerRef}>
             {flashLogs.length === 0 ? (
               <div className="flasher-placeholder">
-                Click Flash Firmware to program bundled ESP32-S3 SDR binaries directly from Chromium via Web Serial &amp; esptool-js.
+                Select your board and click Flash Firmware to program bundled SDR binaries directly from Chromium via Web Serial &amp; esptool-js.
               </div>
             ) : (
               flashLogs.map((l, idx) => <div key={idx}>{l || '\u00a0'}</div>)
