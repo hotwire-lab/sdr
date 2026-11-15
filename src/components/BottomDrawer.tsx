@@ -1,79 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import { ESPLoader, FlashOptions, LoaderOptions, Transport } from 'esptool-js';
-import '@xterm/xterm/css/xterm.css';
-import {
-  buildBootloaderCmd,
-  computeXorChecksum,
-  encodeResponseFrame,
-} from '../protocol/codec';
+import { buildBootloaderCmd } from '../protocol/codec';
 import { BoardCapabilitiesFrame } from '../protocol/types';
 import { SerialTransport, TransportSnapshot } from '../transport/SerialTransport';
 
-export type DrawerTab = 'terminal' | 'flasher';
-
-export type TargetBoardKey = 'esp32s3';
-
-interface BoardFlashProfile {
-  key: TargetBoardKey;
-  label: string;
-  chipName: string;
-  prefix: string;
-  bootloaderOffset: number;
-  flashSize: '4MB' | '8MB';
-  hint: string;
-}
-
-const BOARD_FLASH_PROFILES: Record<TargetBoardKey, BoardFlashProfile> = {
-  esp32s3: {
-    key: 'esp32s3',
-    label: 'Seeed Studio XIAO ESP32-S3',
-    chipName: 'ESP32-S3',
-    prefix: 'HotWire_SDR_XIAO_ESP32S3.ino',
-    bootloaderOffset: 0x0,
-    flashSize: '8MB',
-    hint: '1.84–2.79 GHz RF Spectrum Analyzer + Waterfall Engine',
-  },
+const BOARD_PROFILE = {
+  label: 'Seeed Studio XIAO ESP32-S3',
+  prefix: 'HotWire_SDR_XIAO_ESP32S3.ino',
+  bootloaderOffset: 0x0,
+  flashSize: '8MB' as const,
+  hint: '1.84–2.79 GHz RF Spectrum Analyzer',
 };
-
-const QUICK_MACROS = [
-  { label: 'help', cmd: 'help\r\n' },
-  { label: 'sdr status', cmd: 'sdr status\r\n' },
-  { label: 'sdr stop', cmd: 'sdr stop\r\n' },
-  { label: 'tune 2437', cmd: 'tune 2437\r\n' },
-  { label: 'tune 1910', cmd: 'tune 1910\r\n' },
-  { label: 'gain agc', cmd: 'gain agc\r\n' },
-  { label: 'gain 40', cmd: 'gain 40\r\n' },
-  { label: 'stream fft', cmd: 'stream fft\r\n' },
-];
 
 export interface BottomDrawerProps {
   open: boolean;
-  activeTab: DrawerTab;
-  onTabChange: (tab: DrawerTab) => void;
   onClose: () => void;
   transportSnapshot: TransportSnapshot;
   caps: BoardCapabilitiesFrame | null;
   serialTransport: SerialTransport;
-  registerTerminalWriter: (writer: (bytes: Uint8Array) => void) => () => void;
 }
 
 export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   open,
-  activeTab,
-  onTabChange,
   onClose,
   transportSnapshot,
   caps,
   serialTransport,
-  registerTerminalWriter,
 }) => {
-  const termContainerRef = useRef<HTMLDivElement | null>(null);
-  const termRef = useRef<Terminal | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-
-  const [targetBoard, setTargetBoard] = useState<TargetBoardKey>('esp32s3');
   const [flashLogs, setFlashLogs] = useState<string[]>([]);
   const [flashProgress, setFlashProgress] = useState<number>(0);
   const [flashing, setFlashing] = useState<boolean>(false);
@@ -81,70 +34,44 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
   const [showCustomBin, setShowCustomBin] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [flashOffset, setFlashOffset] = useState<'full' | '0x10000' | '0x0'>('full');
+  const logContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!termContainerRef.current) return;
-
-    const term = new Terminal({
-      cursorBlink: true,
-      fontFamily: 'Consolas, monospace',
-      fontSize: 12,
-      theme: {
-        background: '#090d16',
-        foreground: '#d4e1f5',
-      },
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(termContainerRef.current);
-    fitAddon.fit();
-
-    term.writeln('\x1b[36mHotWire SDR Terminal Ready.\x1b[0m');
-    term.onData((data) => {
-      void serialTransport.writeBytes(new TextEncoder().encode(data));
-    });
-
-    termRef.current = term;
-    fitAddonRef.current = fitAddon;
-
-    const unregister = registerTerminalWriter((bytes) => {
-      term.write(bytes);
-    });
-
-    return () => {
-      unregister();
-      term.dispose();
-      termRef.current = null;
-      fitAddonRef.current = null;
-    };
-  }, [serialTransport, registerTerminalWriter]);
-
-  useEffect(() => {
-    if (open && activeTab === 'terminal') {
-      window.setTimeout(() => {
-        fitAddonRef.current?.fit();
-      }, 60);
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
-  }, [open, activeTab]);
+  }, [flashLogs]);
 
   const appendLog = (line: string) => {
     setFlashLogs((prev) => [...prev.slice(-140), line]);
   };
 
+  const appendChunk = (chunk: string) => {
+    const cleaned = chunk.replace(/\r/g, '');
+    if (!cleaned) return;
+    setFlashLogs((prev) => {
+      const parts = cleaned.split('\n');
+      const next = prev.length > 0 ? [...prev] : [''];
+      next[next.length - 1] = `${next[next.length - 1]}${parts[0]}`;
+      for (let i = 1; i < parts.length; i++) {
+        next.push(parts[i]);
+      }
+      return next.slice(-140);
+    });
+  };
+
   const firmwareUrls = useMemo(() => {
-    const profile = BOARD_FLASH_PROFILES[targetBoard];
     const base = `${import.meta.env.BASE_URL}firmware/`;
     return [
       {
         label: 'bootloader',
-        address: profile.bootloaderOffset,
-        url: `${base}${profile.prefix}.bootloader.bin`,
+        address: BOARD_PROFILE.bootloaderOffset,
+        url: `${base}${BOARD_PROFILE.prefix}.bootloader.bin`,
       },
       {
         label: 'partitions',
         address: 0x8000,
-        url: `${base}${profile.prefix}.partitions.bin`,
+        url: `${base}${BOARD_PROFILE.prefix}.partitions.bin`,
       },
       {
         label: 'boot_app0',
@@ -154,10 +81,10 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       {
         label: 'firmware',
         address: 0x10000,
-        url: `${base}${profile.prefix}.bin`,
+        url: `${base}${BOARD_PROFILE.prefix}.bin`,
       },
     ];
-  }, [targetBoard]);
+  }, []);
 
   const handleFlash = async (forceOtherPort = false) => {
     if (flashing) return;
@@ -172,11 +99,10 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
     setFlashLogs([]);
     serialTransport.setAutoReconnectPaused(true);
 
-    const profile = BOARD_FLASH_PROFILES[targetBoard];
     let port = forceOtherPort ? null : serialTransport.getActiveWebSerialPort();
 
     try {
-      appendLog(`[1/4] Preparing to flash ${profile.label}...`);
+      appendLog(`[1/4] Preparing to flash ${BOARD_PROFILE.label}...`);
       if (!forceOtherPort && transportSnapshot.transport === 'webserial' && port) {
         appendLog('Sending 0xF0 bootloader entry command & closing app transport...');
         try {
@@ -219,9 +145,9 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
           fileArray.push({ data: buf, address: item.address });
         }
       } else {
-        appendLog(`Downloading bundled app firmware (${profile.prefix}.bin)...`);
+        appendLog(`Downloading bundled app firmware (${BOARD_PROFILE.prefix}.bin)...`);
         const base = `${import.meta.env.BASE_URL}firmware/`;
-        const appUrl = `${base}${profile.prefix}.bin`;
+        const appUrl = `${base}${BOARD_PROFILE.prefix}.bin`;
         const resp = await fetch(appUrl);
         if (!resp.ok) {
           throw new Error(`Missing binary ${appUrl} (${resp.status}).`);
@@ -229,7 +155,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
         const buf = new Uint8Array(await resp.arrayBuffer());
         const addr = flashOffset === '0x0' ? 0x0 : 0x10000;
         fileArray.push({ data: buf, address: addr });
-        appendLog(`Loaded ${profile.prefix}.bin (${buf.byteLength} bytes) -> 0x${addr.toString(16)}`);
+        appendLog(`Loaded ${BOARD_PROFILE.prefix}.bin (${buf.byteLength} bytes) -> 0x${addr.toString(16)}`);
       }
 
       appendLog('[2/4] Connecting to ROM bootloader via esptool-js...');
@@ -244,7 +170,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
         terminal: {
           clean: () => {},
           writeLine: (line: string) => appendLog(line),
-          write: (data: string) => appendLog(data),
+          write: (data: string) => appendChunk(data),
         },
       };
 
@@ -262,7 +188,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
         await new Promise((r) => setTimeout(r, 150));
         chip = await esploader.main('no_reset');
       }
-      appendLog(`Connected to bootloader chip: ${chip || 'ESP32'}`);
+      appendLog(`Connected to bootloader chip: ${chip || 'ESP32-S3'}`);
 
       appendLog('[3/4] Writing flash memory...');
       const totalBytes = fileArray.reduce((acc, f) => acc + f.data.byteLength, 0);
@@ -270,7 +196,7 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
 
       const flashOptions: FlashOptions = {
         fileArray,
-        flashSize: profile.flashSize,
+        flashSize: BOARD_PROFILE.flashSize,
         flashMode: isBundledFull ? 'dio' : 'keep',
         flashFreq: isBundledFull ? '80m' : 'keep',
         eraseAll: false,
@@ -320,7 +246,9 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       await serialTransport.connectWebSerialPort(port);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setFlashError(msg);
+      setFlashError(
+        `${msg} (If USB re-enumerated, hold BOOT + tap RESET and click "Select Port & Flash")`,
+      );
       appendLog(`ERROR: ${msg}`);
       serialTransport.setAutoReconnectPaused(false);
     } finally {
@@ -328,48 +256,21 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
     }
   };
 
-  // Sanity reference so codec helpers don't drift unused
-  void computeXorChecksum;
-  void encodeResponseFrame;
-
   if (!open) return null;
 
   return (
-    <section className="bottom-drawer" aria-label="Developer Console and Web Flasher">
+    <section className="bottom-drawer" aria-label="ESP32-S3 Web Flasher">
       <div className="drawer-header">
         <div className="drawer-tabs">
-          <button
-            type="button"
-            className={`drawer-tab ${activeTab === 'terminal' ? 'active' : ''}`}
-            onClick={() => onTabChange('terminal')}
-          >
-            Serial Terminal
-          </button>
-          <button
-            type="button"
-            className={`drawer-tab ${activeTab === 'flasher' ? 'active' : ''}`}
-            onClick={() => onTabChange('flasher')}
-          >
-            Web Flasher (esptool-js)
-          </button>
+          <span className="drawer-title">Web Flasher (esptool-js)</span>
+          <span className="flasher-board-badge">
+            {BOARD_PROFILE.label} • {BOARD_PROFILE.flashSize}
+          </span>
         </div>
 
-        <div className="drawer-macros">
-          {activeTab === 'terminal' &&
-            QUICK_MACROS.map((m) => (
-              <button
-                key={m.label}
-                type="button"
-                className="btn-macro"
-                onClick={() =>
-                  void serialTransport.writeBytes(new TextEncoder().encode(m.cmd))
-                }
-                disabled={transportSnapshot.status !== 'connected'}
-              >
-                {m.label}
-              </button>
-            ))}
-        </div>
+        <span className="flasher-hint">
+          {caps ? `Connected: ${caps.board} (${caps.firmware})` : BOARD_PROFILE.hint}
+        </span>
 
         <button type="button" className="btn-mini" onClick={onClose}>
           Hide
@@ -377,148 +278,118 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       </div>
 
       <div className="drawer-body">
-        <div
-          className="terminal-pane"
-          style={{ display: activeTab === 'terminal' ? 'flex' : 'none' }}
-        >
-          <div ref={termContainerRef} className="xterm-host" />
-        </div>
+        <div className="flasher-pane">
+          <div className="flasher-controls">
+            <button
+              type="button"
+              className="btn btn-accent"
+              onClick={() => void handleFlash(false)}
+              disabled={flashing}
+            >
+              {flashing ? `Flashing ${flashProgress}%...` : 'Flash Firmware'}
+            </button>
 
-        {activeTab === 'flasher' && (
-          <div className="flasher-pane">
-            <div className="flasher-controls">
-              <div className="control-group">
-                <label htmlFor="target-board">Target Board</label>
-                <select
-                  id="target-board"
-                  value={targetBoard}
-                  onChange={(e) => setTargetBoard(e.target.value as TargetBoardKey)}
-                  disabled={flashing}
-                >
-                  {Object.values(BOARD_FLASH_PROFILES).map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <button
+              type="button"
+              className="btn btn-secondary btn-compact"
+              disabled={flashing}
+              onClick={() => void handleFlash(true)}
+              title="Choose a specific COM/USB serial port manually"
+            >
+              Select Port &amp; Flash...
+            </button>
 
-              <button
-                type="button"
-                className="btn btn-accent"
-                onClick={() => void handleFlash(false)}
-                disabled={flashing}
-              >
-                {flashing ? `Flashing ${flashProgress}%...` : 'Flash Firmware'}
-              </button>
+            <button
+              type="button"
+              className={`btn btn-secondary btn-compact ${showCustomBin ? 'active' : ''}`}
+              disabled={flashing}
+              onClick={() => {
+                setShowCustomBin((prev) => {
+                  const next = !prev;
+                  if (!next) {
+                    setSelectedFile(null);
+                    setFlashOffset('full');
+                  }
+                  return next;
+                });
+              }}
+            >
+              Custom .bin...
+            </button>
 
-              {transportSnapshot.transport === 'webserial' && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-compact"
-                  disabled={flashing}
-                  onClick={() => void handleFlash(true)}
-                >
-                  Select Other Port...
-                </button>
-              )}
-
-              <button
-                type="button"
-                className={`btn btn-secondary btn-compact ${showCustomBin ? 'active' : ''}`}
-                disabled={flashing}
-                onClick={() => {
-                  setShowCustomBin((prev) => {
-                    const next = !prev;
-                    if (!next) {
-                      setSelectedFile(null);
-                      setFlashOffset('full');
+            {showCustomBin && (
+              <>
+                <div className="control-group">
+                  <label htmlFor="flash-offset">Target Image</label>
+                  <select
+                    id="flash-offset"
+                    value={flashOffset}
+                    disabled={flashing}
+                    onChange={(e) =>
+                      setFlashOffset(e.target.value as '0x10000' | '0x0' | 'full')
                     }
-                    return next;
-                  });
-                }}
-              >
-                Custom .bin...
-              </button>
-
-              {showCustomBin && (
-                <>
-                  <div className="control-group">
-                    <label htmlFor="flash-offset">Target Image</label>
-                    <select
-                      id="flash-offset"
-                      value={flashOffset}
-                      disabled={flashing}
-                      onChange={(e) =>
-                        setFlashOffset(e.target.value as '0x10000' | '0x0' | 'full')
-                      }
-                    >
-                      <option value="full">Bundled Full Image (Boot + Partitions + App)</option>
-                      <option value="0x10000">App Firmware @ 0x10000</option>
-                      <option value="0x0">Merged .bin @ 0x0</option>
-                    </select>
-                  </div>
-
-                  <label className="file-picker-label">
-                    <span>
-                      {selectedFile
-                        ? selectedFile.name
-                        : `Choose .bin (${BOARD_FLASH_PROFILES[targetBoard].prefix})`}
-                    </span>
-                    <input
-                      type="file"
-                      accept=".bin"
-                      disabled={flashing}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] ?? null;
-                        setSelectedFile(file);
-                        if (file && flashOffset === 'full') {
-                          setFlashOffset('0x10000');
-                        }
-                      }}
-                    />
-                  </label>
-
-                  {selectedFile && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-compact"
-                      disabled={flashing}
-                      onClick={() => setSelectedFile(null)}
-                    >
-                      Use Bundled
-                    </button>
-                  )}
-                </>
-              )}
-
-              <span className="flasher-hint">
-                {caps ? `Connected: ${caps.board} (${caps.firmware})` : BOARD_FLASH_PROFILES[targetBoard].hint}
-              </span>
-            </div>
-
-            {flashing && (
-              <div className="flash-progress-track" aria-label="Flashing progress">
-                <div
-                  className="flash-progress-fill"
-                  style={{ width: `${flashProgress}%` }}
-                />
-              </div>
-            )}
-
-            {flashError && <div className="flasher-error">{flashError}</div>}
-
-            <div className="flasher-log">
-              {flashLogs.length === 0 ? (
-                <div className="flasher-placeholder">
-                  Click Flash Firmware to program bundled ESP32-S3 SDR binaries directly from Chromium via Web Serial &amp; esptool-js.
+                  >
+                    <option value="full">Bundled Full Image (Boot + Partitions + App)</option>
+                    <option value="0x10000">App Firmware @ 0x10000</option>
+                    <option value="0x0">Merged .bin @ 0x0</option>
+                  </select>
                 </div>
-              ) : (
-                flashLogs.map((l, idx) => <div key={idx}>{l}</div>)
-              )}
-            </div>
+
+                <label className="file-picker-label">
+                  <span>
+                    {selectedFile
+                      ? selectedFile.name
+                      : `Choose .bin (${BOARD_PROFILE.prefix})`}
+                  </span>
+                  <input
+                    type="file"
+                    accept=".bin"
+                    disabled={flashing}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] ?? null;
+                      setSelectedFile(file);
+                      if (file && flashOffset === 'full') {
+                        setFlashOffset('0x10000');
+                      }
+                    }}
+                  />
+                </label>
+
+                {selectedFile && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-compact"
+                    disabled={flashing}
+                    onClick={() => setSelectedFile(null)}
+                  >
+                    Use Bundled
+                  </button>
+                )}
+              </>
+            )}
           </div>
-        )}
+
+          {flashing && (
+            <div className="flash-progress-track" aria-label="Flashing progress">
+              <div
+                className="flash-progress-fill"
+                style={{ width: `${flashProgress}%` }}
+              />
+            </div>
+          )}
+
+          {flashError && <div className="flasher-error">{flashError}</div>}
+
+          <div className="flasher-log" ref={logContainerRef}>
+            {flashLogs.length === 0 ? (
+              <div className="flasher-placeholder">
+                Click Flash Firmware to program bundled ESP32-S3 SDR binaries directly from Chromium via Web Serial &amp; esptool-js.
+              </div>
+            ) : (
+              flashLogs.map((l, idx) => <div key={idx}>{l || '\u00a0'}</div>)
+            )}
+          </div>
+        </div>
       </div>
     </section>
   );

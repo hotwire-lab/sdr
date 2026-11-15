@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BottomDrawer, DrawerTab } from './components/BottomDrawer';
+import { BottomDrawer } from './components/BottomDrawer';
 import { RawIqInspector } from './components/RawIqInspector';
 import { SdrControlBar } from './components/SdrControlBar';
 import { SdrSpectrumWaterfall } from './components/SdrSpectrumWaterfall';
@@ -33,16 +33,6 @@ export const App: React.FC = () => {
     transportRef.current = new SerialTransport();
   }
   const serialTransport = transportRef.current;
-
-  const terminalWriterRef = useRef<((bytes: Uint8Array) => void) | null>(null);
-  const registerTerminalWriter = useCallback((writer: (bytes: Uint8Array) => void) => {
-    terminalWriterRef.current = writer;
-    return () => {
-      if (terminalWriterRef.current === writer) {
-        terminalWriterRef.current = null;
-      }
-    };
-  }, []);
 
   const [transport, setTransport] = useState<TransportSnapshot>(() =>
     serialTransport.getSnapshot(),
@@ -79,9 +69,8 @@ export const App: React.FC = () => {
   const [rawIqKb, setRawIqKb] = useState<number>(2);
   const [streamingContIq, setStreamingContIq] = useState<boolean>(false);
 
-  // Bottom drawer state
+  // Bottom drawer state (Web Flasher)
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
-  const [drawerTab, setDrawerTab] = useState<DrawerTab>('terminal');
 
   const dspOptionsRef = useRef({
     dcNotch: sdrDcNotch,
@@ -98,9 +87,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const demuxer = new ProtocolDemuxer({
-      onTerminalBytes: (bytes) => {
-        terminalWriterRef.current?.(bytes);
-      },
+      onTerminalBytes: () => {},
       onFrame: (frame) => {
         if (frame.type === 'capabilities') {
           setCaps(frame);
@@ -452,13 +439,10 @@ export const App: React.FC = () => {
 
       <BottomDrawer
         open={drawerOpen}
-        activeTab={drawerTab}
-        onTabChange={setDrawerTab}
         onClose={() => setDrawerOpen(false)}
         transportSnapshot={transport}
         caps={caps}
         serialTransport={serialTransport}
-        registerTerminalWriter={registerTerminalWriter}
       />
     </div>
   );
