@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://kavierim.github.io/HotWire-SDR/sitemap.xml
