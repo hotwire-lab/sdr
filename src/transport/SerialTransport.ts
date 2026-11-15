@@ -169,7 +169,7 @@ export class SerialTransport {
   private demoAsciiLine = '';
 
   private demoSdrCenterMhz = 2437;
-  private demoSdrRateBwCode = 0;
+  private demoSdrRateBwCode = 1;
   private demoSdrGainIndex = 42;
   private demoSdrStreamMode = SDR_STREAM_STOP;
   private demoSdrFftLog2 = 10;
@@ -387,7 +387,7 @@ export class SerialTransport {
     this.demoAsciiLine = '';
 
     this.demoSdrCenterMhz = 2437;
-    this.demoSdrRateBwCode = 0;
+    this.demoSdrRateBwCode = 1;
     this.demoSdrGainIndex = 42;
     this.demoSdrStreamMode = SDR_STREAM_STOP;
     this.demoSdrFftLog2 = 10;

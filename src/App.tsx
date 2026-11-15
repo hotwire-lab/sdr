@@ -51,7 +51,7 @@ export const App: React.FC = () => {
   // SDR state
   const [sdrStreaming, setSdrStreaming] = useState<boolean>(false);
   const [sdrCenterFreqMhz, setSdrCenterFreqMhz] = useState<number>(2437);
-  const [sdrRateBwCode, setSdrRateBwCode] = useState<number>(0);
+  const [sdrRateBwCode, setSdrRateBwCode] = useState<number>(1);
   const [sdrFftLog2, setSdrFftLog2] = useState<number>(10);
   const [sdrMaxHoldDetector, setSdrMaxHoldDetector] = useState<boolean>(false);
   const [sdrSubWindows, setSdrSubWindows] = useState<number>(4);
