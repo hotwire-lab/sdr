@@ -71,7 +71,7 @@ static const char* const BOARD_NAME = HOTWIRE_BOARD_NAME;
 // -----------------------------------------------------------------------------
 
 static const uint32_t RF_DUMP_SRAM_BASE   = 0x40840000UL;
-static const uint32_t RF_DUMP_MAX_SAMPLES = 8192UL;
+static const uint32_t RF_DUMP_MAX_SAMPLES = 4096UL;
 static const uint32_t RF_DUMP_SENTINEL    = 0xA5A0055AUL;
 
 static const uint32_t REG_SRAM_OWNER      = 0x60095004UL; // Modify ONLY bits [11:8]
@@ -641,7 +641,7 @@ static void Engine_Task(void* arg) {
     const bool dcCancel = (cfg.dspFlags & 0x02U) != 0;
 
     if (cfg.streamMode == SDR_STREAM_SINGLE_IQ || cfg.streamMode == SDR_STREAM_CONT_IQ) {
-      uint32_t kb = (cfg.sizeParam < 1U) ? 1U : ((cfg.sizeParam > 8U) ? 8U : cfg.sizeParam);
+      uint32_t kb = (cfg.sizeParam < 1U) ? 1U : ((cfg.sizeParam > 4U) ? 4U : cfg.sizeParam);
       uint32_t sampleCount = kb * 1024U;
       if (sampleCount > RF_DUMP_MAX_SAMPLES) sampleCount = RF_DUMP_MAX_SAMPLES;
 
@@ -955,7 +955,7 @@ static void* allocPreferredCaps(size_t bytes, uint32_t caps) {
 
 static void reserveC6RfDumpBank2() {
   // Arduino precompiled ld scripts ignore SOC_RESERVE_MEMORY_REGION, so pin
-  // SRAM Bank 2 (0x40840000..0x4084FFFF) from the heap before Wi-Fi/buffer allocs.
+  // 0x40840000..0x40843FFF (16 KB for 4096 samples) from the heap before Wi-Fi init.
   static const size_t CHUNK_BYTES = 4096;
   static const int MAX_CHUNKS = 96;
   void* tempPtrs[MAX_CHUNKS];
@@ -967,11 +967,11 @@ static void reserveC6RfDumpBank2() {
     if (p == nullptr) break;
     uintptr_t start = (uintptr_t)p;
     uintptr_t end = start + CHUNK_BYTES;
-    bool overlapsBank2 = (end > 0x40840000UL) && (start < 0x40850000UL);
+    bool overlapsDump = (end > 0x40840000UL) && (start < 0x40844000UL);
     tempPtrs[count] = p;
-    keepChunk[count] = overlapsBank2;
+    keepChunk[count] = overlapsDump;
     count++;
-    if (start >= 0x40850000UL) break;
+    if (start >= 0x40844000UL) break;
   }
 
   for (int i = 0; i < count; i++) {
@@ -1007,7 +1007,7 @@ void setup() {
   sdrTxFrame   = (uint8_t*)allocPreferredCaps(16U + RF_DUMP_MAX_SAMPLES * 2U, MALLOC_CAP_8BIT);
 
   xTaskCreatePinnedToCore(Protocol_Task, "HotWire_Proto", 4096, nullptr, 3, &protoTaskHandle, 0);
-  xTaskCreatePinnedToCore(Engine_Task, "HotWire_Engine", 8192, nullptr, 2, &engineTaskHandle, 0);
+  xTaskCreatePinnedToCore(Engine_Task, "HotWire_Engine", 4096, nullptr, 2, &engineTaskHandle, 0);
 }
 
 void loop() {
