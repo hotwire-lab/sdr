@@ -1,5 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (c) 2026 Kari Vierimaa, Kempele
  *
  * HotWire SDR - Dedicated 1.84–2.79 GHz RF Spectrum Analyzer Firmware for Seeed Studio XIAO ESP32-S3
  *
