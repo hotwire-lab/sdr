@@ -164,6 +164,8 @@ static uint8_t sdrAppliedGainIdx = 0xFF;
 static bool sdrAppliedLoDiv = false;
 static bool sdrTuneInitialized = false;
 static bool sdrExternalAntenna = true;
+static volatile uint32_t engineFrameCount = 0;
+static volatile uint32_t engineLoopCount = 0;
 
 static void selectC6Antenna(bool external) {
   pinMode(WIFI_ENABLE, OUTPUT);
@@ -613,6 +615,7 @@ static void Engine_Task(void* arg) {
   uint8_t sweepDwellCnt = 0;
 
   for (;;) {
+    engineLoopCount++;
     SdrConfig cfg;
     cfg.centerFreqMhz    = sdrCfg.centerFreqMhz;
     cfg.rateBwCode       = sdrCfg.rateBwCode;
@@ -763,6 +766,7 @@ static void Engine_Task(void* arg) {
       sFlags,
       sdrQuantBins
     );
+    engineFrameCount++;
 
     if (cfg.sweepSteps > 0) {
       sweepDwellCnt++;
@@ -868,14 +872,20 @@ static void handleAsciiLine(const char* line) {
     sdrCfg.streamMode = SDR_STREAM_STOP;
     sendTextLocked("\r\n[SDR] Stream stopped.\r\n");
   } else if (strcmp(line, "sdr status") == 0 || strcmp(line, "status") == 0) {
-    char buf[192];
+    char buf[256];
+    bool bufsOk = (sdrIqI && sdrIqQ && sdrFftRe && sdrFftIm && sdrPwrAcc && sdrHann && sdrQuantBins && sdrTxFrame);
     snprintf(
       buf, sizeof(buf),
-      "\r\n[STATUS] board=%s freq=%uMHz bw=%u gain=%u loDiv=%s mode=%u phy=%u(err=%d)\r\n",
+      "\r\n[STATUS] board=%s freq=%uMHz bw=%u gain=%u loDiv=%s mode=%u phy=%u(err=%d) eng=%u loops=%lu frames=%lu bufs=%u free=%lu\r\n",
       BOARD_NAME,
       sdrAppliedFreqMhz, sdrAppliedBwCode, sdrAppliedGainIdx,
       sdrAppliedLoDiv ? "5/6" : "1/1", sdrCfg.streamMode,
-      wifiPhyReady ? 1U : 0U, lastWifiErr
+      wifiPhyReady ? 1U : 0U, lastWifiErr,
+      engineTaskHandle != nullptr ? 1U : 0U,
+      (unsigned long)engineLoopCount,
+      (unsigned long)engineFrameCount,
+      bufsOk ? 1U : 0U,
+      (unsigned long)esp_get_free_heap_size()
     );
     sendTextLocked(buf);
   } else if (strncmp(line, "tune ", 5) == 0) {
