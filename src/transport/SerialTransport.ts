@@ -943,18 +943,18 @@ export class SerialTransport {
     emitters.push({ freqMhz: bleCh, bwMhz: 1.4, peakDbFs: -39, shape: 'narrow' });
     emitters.push({ freqMhz: 2402, bwMhz: 1.2, peakDbFs: -62, shape: 'narrow' });
 
-    // DECT 1.9 GHz (< 2210 MHz triggers 5/6 LO divider)
-    emitters.push({ freqMhz: 1906, bwMhz: 1.6, peakDbFs: -42, shape: 'narrow' });
-    emitters.push({ freqMhz: 1912, bwMhz: 1.6, peakDbFs: -46, shape: 'narrow' });
+    // DECT 1.9 GHz European Allocation (1880–1900 MHz, triggers 5/6 LO divider)
+    emitters.push({ freqMhz: 1885, bwMhz: 1.6, peakDbFs: -42, shape: 'narrow' });
+    emitters.push({ freqMhz: 1891, bwMhz: 1.6, peakDbFs: -46, shape: 'narrow' });
     if (t % 5 < 3) {
-      emitters.push({ freqMhz: 1898, bwMhz: 1.6, peakDbFs: -51, shape: 'narrow' });
+      emitters.push({ freqMhz: 1897, bwMhz: 1.6, peakDbFs: -51, shape: 'narrow' });
     }
 
     // 13cm Ham ATV / Beacon
     emitters.push({ freqMhz: 2350, bwMhz: 2.2, peakDbFs: -44, shape: 'narrow' });
 
-    // LTE Band 7 Downlink wideband plateau
-    emitters.push({ freqMhz: 2650, bwMhz: 14, peakDbFs: -45, shape: 'ofdm' });
+    // LTE Band 7 Downlink wideband plateau (2620–2690 MHz)
+    emitters.push({ freqMhz: 2655, bwMhz: 18, peakDbFs: -45, shape: 'ofdm' });
 
     return emitters;
   }

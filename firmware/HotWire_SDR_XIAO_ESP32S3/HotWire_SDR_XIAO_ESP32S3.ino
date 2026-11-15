@@ -332,15 +332,9 @@ static void sdrApplyTune(uint16_t freqMhz, uint8_t bwCode, uint8_t gainIndex) {
   const uint32_t khz = (uint32_t)freqMhz * (useLoDiv ? 1200UL : 1000UL);
   const unsigned pllMhz = (unsigned)(khz / 1000UL);
   const int offsetKhz = (int)(khz % 1000UL);
-  const bool isWifiChan = (
-    !useLoDiv &&
-    ((freqMhz >= 2412 && freqMhz <= 2472 && ((freqMhz - 2412) % 5 == 0)) || freqMhz == 2484)
-  );
 
-  set_chanfreq(isWifiChan ? freqMhz : 2412U, 0);
-  if (!isWifiChan) {
-    set_rf_freq_offset(0, pllMhz, offsetKhz);
-  }
+  // Unconditionally tune the hardware RFPLL synthesizer to target VCO frequency
+  set_rf_freq_offset(0, pllMhz, offsetKhz);
 
   stop_tx_tone(1);
   rom_pbus_workmode();

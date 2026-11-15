@@ -71,15 +71,16 @@ export interface SdrBandPreset {
 }
 
 export const SDR_BAND_PRESETS: SdrBandPreset[] = [
-  { freqMhz: 1910, label: 'DECT / 1.9 GHz', shortLabel: 'DECT 1910', sub2210: true },
-  { freqMhz: 2350, label: '13cm Ham 2350', shortLabel: 'Ham 2350' },
+  { freqMhz: 1890, label: 'DECT EU (1890)', shortLabel: 'DECT 1890', sub2210: true },
+  { freqMhz: 2350, label: '13cm Ham (2350)', shortLabel: 'Ham 2350' },
   { freqMhz: 2402, label: 'BLE Adv 37 (2402)', shortLabel: 'BLE 2402' },
   { freqMhz: 2412, label: 'Wi-Fi Ch 1 (2412)', shortLabel: 'Wi-Fi 1' },
   { freqMhz: 2426, label: 'BLE Adv 38 (2426)', shortLabel: 'BLE 2426' },
   { freqMhz: 2437, label: 'Wi-Fi Ch 6 (2437)', shortLabel: 'Wi-Fi 6' },
   { freqMhz: 2462, label: 'Wi-Fi Ch 11 (2462)', shortLabel: 'Wi-Fi 11' },
+  { freqMhz: 2472, label: 'Wi-Fi Ch 13 (2472)', shortLabel: 'Wi-Fi 13' },
   { freqMhz: 2480, label: 'BLE Adv 39 (2480)', shortLabel: 'BLE 2480' },
-  { freqMhz: 2650, label: 'LTE B7 DL (2650)', shortLabel: 'LTE B7 2650' },
+  { freqMhz: 2655, label: 'LTE B7 DL (2655)', shortLabel: 'LTE B7' },
 ];
 
 export interface BoardCapabilitiesFrame {

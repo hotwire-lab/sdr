@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyDcSpikeNotch,
   applySpurBlanker,
+  binToFreqMhz,
   COLORMAP_LUTS,
+  freqMhzToBin,
   mapDbToLutIndex,
   updateSpectrumTraces,
 } from '../dsp/sdrDsp';
@@ -72,5 +74,33 @@ describe('SDR Host DSP Helpers', () => {
     expect(mapDbToLutIndex(-140, -115, -15)).toBe(0);
     expect(mapDbToLutIndex(-15, -115, -15)).toBe(255);
     expect(mapDbToLutIndex(-65, -115, -15)).toBe(128);
+  });
+
+  it('calculates bin-to-frequency and frequency-to-bin mappings with mathematical symmetry', () => {
+    const centerFreq = 2437;
+    const span = 80;
+    const n = 1024;
+
+    // Center bin exactly matches center frequency
+    expect(binToFreqMhz(512, n, centerFreq, span)).toBe(2437);
+    expect(freqMhzToBin(2437, n, centerFreq, span)).toBe(512);
+
+    // Bin 0 matches start frequency
+    expect(binToFreqMhz(0, n, centerFreq, span)).toBe(2397);
+    expect(freqMhzToBin(2397, n, centerFreq, span)).toBe(0);
+
+    // Nyquist endpoint (bin N) matches end frequency
+    expect(binToFreqMhz(1024, n, centerFreq, span)).toBe(2477);
+    expect(freqMhzToBin(2477, n, centerFreq, span)).toBe(1024);
+
+    // Arbitrary frequency round-trip
+    const testFreq = 2412.5;
+    const binFloat = freqMhzToBin(testFreq, n, centerFreq, span);
+    expect(binToFreqMhz(binFloat, n, centerFreq, span)).toBeCloseTo(testFreq, 6);
+
+    // European DECT 1880-1900 MHz band centered at 1890 MHz with 20 MHz span
+    expect(binToFreqMhz(0, 1024, 1890, 20)).toBe(1880);
+    expect(binToFreqMhz(512, 1024, 1890, 20)).toBe(1890);
+    expect(binToFreqMhz(1024, 1024, 1890, 20)).toBe(1900);
   });
 });

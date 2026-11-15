@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  binToFreqMhz,
   COLORMAP_LUTS,
   ColormapId,
   freqMhzToBin,
@@ -22,14 +23,16 @@ interface MarkerState {
 }
 
 const BAND_OVERLAYS = [
-  { label: 'BLE 37', startMhz: 2401, endMhz: 2403, color: 'rgba(167, 139, 250, 0.20)' },
-  { label: 'Wi-Fi Ch 1', startMhz: 2402, endMhz: 2422, color: 'rgba(56, 189, 248, 0.12)' },
-  { label: 'BLE 38', startMhz: 2425, endMhz: 2427, color: 'rgba(167, 139, 250, 0.20)' },
-  { label: 'Wi-Fi Ch 6', startMhz: 2427, endMhz: 2447, color: 'rgba(52, 211, 153, 0.12)' },
-  { label: 'Wi-Fi Ch 11', startMhz: 2452, endMhz: 2472, color: 'rgba(251, 191, 36, 0.12)' },
-  { label: 'BLE 39', startMhz: 2479, endMhz: 2481, color: 'rgba(167, 139, 250, 0.20)' },
-  { label: 'DECT', startMhz: 1880, endMhz: 1920, color: 'rgba(244, 114, 182, 0.14)' },
-  { label: 'LTE B7', startMhz: 2620, endMhz: 2690, color: 'rgba(251, 146, 60, 0.12)' },
+  { label: 'DECT EU', startMhz: 1880, endMhz: 1900, color: 'rgba(244, 114, 182, 0.16)' },
+  { label: '13cm Ham', startMhz: 2320, endMhz: 2400, color: 'rgba(34, 197, 94, 0.12)' },
+  { label: 'BLE 37', startMhz: 2401, endMhz: 2403, color: 'rgba(167, 139, 250, 0.22)' },
+  { label: 'Wi-Fi Ch 1', startMhz: 2402, endMhz: 2422, color: 'rgba(56, 189, 248, 0.14)' },
+  { label: 'BLE 38', startMhz: 2425, endMhz: 2427, color: 'rgba(167, 139, 250, 0.22)' },
+  { label: 'Wi-Fi Ch 6', startMhz: 2427, endMhz: 2447, color: 'rgba(52, 211, 153, 0.14)' },
+  { label: 'Wi-Fi Ch 11', startMhz: 2452, endMhz: 2472, color: 'rgba(251, 191, 36, 0.14)' },
+  { label: 'Wi-Fi Ch 13', startMhz: 2462, endMhz: 2482, color: 'rgba(249, 115, 22, 0.14)' },
+  { label: 'BLE 39', startMhz: 2479, endMhz: 2481, color: 'rgba(167, 139, 250, 0.22)' },
+  { label: 'LTE B7 DL', startMhz: 2620, endMhz: 2690, color: 'rgba(251, 146, 60, 0.14)' },
 ];
 
 const PLOT_PAD_LEFT = 54;
@@ -241,7 +244,8 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             ctx.save();
             ctx.beginPath();
             for (let i = 0; i < arr.length; i++) {
-              const x = PLOT_PAD_LEFT + (i / (arr.length - 1)) * plotW;
+              const freq = binToFreqMhz(i, arr.length, activeCenter, activeSpan);
+              const x = freqToX(freq);
               const y = dbToY(arr[i]);
               if (i === 0) ctx.moveTo(x, y);
               else ctx.lineTo(x, y);
@@ -251,8 +255,10 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             ctx.lineWidth = lineWidth;
             ctx.stroke();
 
-            if (fillGradient) {
-              ctx.lineTo(PLOT_PAD_LEFT + plotW, PLOT_PAD_TOP + plotH);
+            if (fillGradient && arr.length > 0) {
+              const lastFreq = binToFreqMhz(arr.length - 1, arr.length, activeCenter, activeSpan);
+              const lastX = freqToX(lastFreq);
+              ctx.lineTo(lastX, PLOT_PAD_TOP + plotH);
               ctx.lineTo(PLOT_PAD_LEFT, PLOT_PAD_TOP + plotH);
               ctx.closePath();
               const grad = ctx.createLinearGradient(0, PLOT_PAD_TOP, 0, PLOT_PAD_TOP + plotH);
