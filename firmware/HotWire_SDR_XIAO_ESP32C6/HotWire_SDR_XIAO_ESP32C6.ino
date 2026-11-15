@@ -953,10 +953,40 @@ static void* allocPreferredCaps(size_t bytes, uint32_t caps) {
   return heap_caps_malloc(bytes, caps);
 }
 
+static void reserveC6RfDumpBank2() {
+  // Arduino precompiled ld scripts ignore SOC_RESERVE_MEMORY_REGION, so pin
+  // SRAM Bank 2 (0x40840000..0x4084FFFF) from the heap before Wi-Fi/buffer allocs.
+  static const size_t CHUNK_BYTES = 4096;
+  static const int MAX_CHUNKS = 96;
+  void* tempPtrs[MAX_CHUNKS];
+  bool keepChunk[MAX_CHUNKS];
+  int count = 0;
+
+  while (count < MAX_CHUNKS) {
+    void* p = heap_caps_malloc(CHUNK_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (p == nullptr) break;
+    uintptr_t start = (uintptr_t)p;
+    uintptr_t end = start + CHUNK_BYTES;
+    bool overlapsBank2 = (end > 0x40840000UL) && (start < 0x40850000UL);
+    tempPtrs[count] = p;
+    keepChunk[count] = overlapsBank2;
+    count++;
+    if (start >= 0x40850000UL) break;
+  }
+
+  for (int i = 0; i < count; i++) {
+    if (!keepChunk[i]) {
+      heap_caps_free(tempPtrs[i]);
+    }
+  }
+}
+
 void setup() {
   Serial.setRxBufferSize(4096);
   Serial.setTxBufferSize(4096);
   Serial.begin(921600);
+
+  reserveC6RfDumpBank2();
 
   stateMutex = xSemaphoreCreateMutex();
   txMutex = xSemaphoreCreateMutex();
