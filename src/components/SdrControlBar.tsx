@@ -28,6 +28,8 @@ export interface SdrControlBarProps {
   onDcNotchChange: (enabled: boolean) => void;
   spurBlanker: boolean;
   onSpurBlankerChange: (enabled: boolean) => void;
+  invertSpectrum: boolean;
+  onInvertSpectrumChange: (enabled: boolean) => void;
   onClearPeakHold: () => void;
   sweepEnabled: boolean;
   onToggleSweep: () => void;
@@ -58,6 +60,8 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
   onDcNotchChange,
   spurBlanker,
   onSpurBlankerChange,
+  invertSpectrum,
+  onInvertSpectrumChange,
   onClearPeakHold,
   sweepEnabled,
   onToggleSweep,
@@ -397,6 +401,14 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
               title="Suppress single-bin clock spurs"
             >
               Spur Blanker
+            </button>
+            <button
+              type="button"
+              className={`toggle-chip ${invertSpectrum ? 'active' : ''}`}
+              onClick={() => onInvertSpectrumChange(!invertSpectrum)}
+              title="Invert spectrum / Flip I/Q frequency axis"
+            >
+              Invert IQ
             </button>
             <button
               type="button"

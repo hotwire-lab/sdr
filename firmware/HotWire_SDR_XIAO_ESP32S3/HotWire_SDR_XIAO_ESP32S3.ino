@@ -437,7 +437,7 @@ static bool IRAM_ATTR iqvCaptureSnapshot(
       clipped = true;
     }
     outI[i] = valI;
-    outQ[i] = valQ;
+    outQ[i] = (int16_t)(-valQ); // Conjugate Q to correct baseband mixer spectral inversion
   }
 
   *outActiveGain = latestGain;

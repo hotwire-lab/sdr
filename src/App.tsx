@@ -58,6 +58,7 @@ export const App: React.FC = () => {
   const [sdrSubWindows, setSdrSubWindows] = useState<number>(4);
   const [sdrDcNotch, setSdrDcNotch] = useState<boolean>(true);
   const [sdrSpurBlanker, setSdrSpurBlanker] = useState<boolean>(false);
+  const [sdrInvertSpectrum, setSdrInvertSpectrum] = useState<boolean>(false);
   const [sdrGainIndex, setSdrGainIndex] = useState<number>(SDR_GAIN_AGC);
   const [sdrTargetFps, setSdrTargetFps] = useState<number>(20);
   const [sdrSweepEnabled, setSdrSweepEnabled] = useState<boolean>(false);
@@ -83,10 +84,12 @@ export const App: React.FC = () => {
   const dspOptionsRef = useRef({
     dcNotch: sdrDcNotch,
     spurBlanker: sdrSpurBlanker,
+    invertSpectrum: sdrInvertSpectrum,
     clearNextPeak: false,
   });
   dspOptionsRef.current.dcNotch = sdrDcNotch;
   dspOptionsRef.current.spurBlanker = sdrSpurBlanker;
+  dspOptionsRef.current.invertSpectrum = sdrInvertSpectrum;
 
   const lastSdrFrameTsRef = useRef<number>(0);
 
@@ -127,6 +130,7 @@ export const App: React.FC = () => {
               {
                 dcNotch: dspOptionsRef.current.dcNotch,
                 spurBlanker: dspOptionsRef.current.spurBlanker,
+                invertSpectrum: dspOptionsRef.current.invertSpectrum,
                 clearPeakHold: clearPeak,
               },
             );
@@ -214,6 +218,11 @@ export const App: React.FC = () => {
     },
     [sendSdrTune, sdrCenterFreqMhz, sdrRateBwCode],
   );
+
+  const handleInvertSpectrumChange = useCallback((enabled: boolean) => {
+    setSdrInvertSpectrum(enabled);
+    dspOptionsRef.current.clearNextPeak = true;
+  }, []);
 
   const handleToggleSdrStream = useCallback(() => {
     if (sdrStreaming) {
@@ -348,6 +357,8 @@ export const App: React.FC = () => {
           onDcNotchChange={setSdrDcNotch}
           spurBlanker={sdrSpurBlanker}
           onSpurBlankerChange={setSdrSpurBlanker}
+          invertSpectrum={sdrInvertSpectrum}
+          onInvertSpectrumChange={handleInvertSpectrumChange}
           onClearPeakHold={() => {
             dspOptionsRef.current.clearNextPeak = true;
           }}

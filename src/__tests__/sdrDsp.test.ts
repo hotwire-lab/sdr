@@ -67,6 +67,26 @@ describe('SDR Host DSP Helpers', () => {
     expect(s3.peakHoldDbFs[10]).toBe(-95);
   });
 
+  it('inverts spectrum axis when invertSpectrum option is enabled', () => {
+    const frame = new Float32Array(32).fill(-90);
+    frame[5] = -25; // Peak on left side
+    const normal = updateSpectrumTraces(frame, 2437, 80, null, {
+      dcNotch: false,
+      spurBlanker: false,
+      invertSpectrum: false,
+    });
+    expect(normal.liveDbFs[5]).toBe(-25);
+
+    const inverted = updateSpectrumTraces(frame, 2437, 80, null, {
+      dcNotch: false,
+      spurBlanker: false,
+      invertSpectrum: true,
+    });
+    // With 32 bins, bin 5 reverses to bin 32 - 1 - 5 = 26
+    expect(inverted.liveDbFs[26]).toBe(-25);
+    expect(inverted.liveDbFs[5]).toBe(-90);
+  });
+
   it('builds 256-entry RGBA LUTs and clamps dBFS mapping', () => {
     expect(COLORMAP_LUTS.turbo.length).toBe(256 * 4);
     expect(COLORMAP_LUTS.viridis.length).toBe(256 * 4);

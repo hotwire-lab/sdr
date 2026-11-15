@@ -21,6 +21,7 @@ export interface SpectrumTraceState {
 export interface DspProcessOptions {
   dcNotch: boolean;
   spurBlanker: boolean;
+  invertSpectrum?: boolean;
   spurThresholdDb?: number;
   avgAlpha?: number;
   clearPeakHold?: boolean;
@@ -205,6 +206,9 @@ export function updateSpectrumTraces(
 ): SpectrumTraceState {
   let processed = new Float32Array(rawDbFs.length);
   processed.set(rawDbFs);
+  if (options.invertSpectrum) {
+    processed.reverse();
+  }
   if (options.dcNotch) {
     processed = new Float32Array(applyDcSpikeNotch(processed));
   }
