@@ -221,23 +221,30 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       appendLog('[4/4] Flashing complete! Triggering ESP32-S3 RTC watchdog reset...');
       let watchdogTriggered = false;
       try {
-        // ESP32-S3 USB-Serial/JTAG often ignores/drops RTS pulses during reset;
-        // triggering the internal RTC Watchdog forces a clean SoC reboot out of download mode.
+        // Clear FORCE_DOWNLOAD_BOOT so the ROM bootloader doesn't re-enter download mode
+        const RTC_CNTL_OPTION1_REG = 0x6000812c;
         const RTC_CNTL_WDTCONFIG0_REG = 0x60008098;
         const RTC_CNTL_WDTCONFIG1_REG = 0x6000809c;
+        const RTC_CNTL_WDTFEED_REG = 0x600080a8;
         const RTC_CNTL_WDTWPROTECT_REG = 0x600080b0;
         const RTC_CNTL_WDT_WKEY = 0x50d83aa1;
 
+        await esploader.writeReg(RTC_CNTL_OPTION1_REG, 0);
         await esploader.writeReg(RTC_CNTL_WDTWPROTECT_REG, RTC_CNTL_WDT_WKEY);
         await esploader.writeReg(RTC_CNTL_WDTCONFIG1_REG, 2000);
         const curCfg0 = await esploader.readReg(RTC_CNTL_WDTCONFIG0_REG);
-        // Bit 31: WDT_EN, Bits 30:28: WDT_STG0 = 3 (System Reset)
-        const nextCfg0 = ((curCfg0 & 0x0fffffff) | 0xb0000000) >>> 0;
+        // Bit 31: WDT_EN, Bits 30:28: WDT_STG0 = 3 (System Reset), Bits 20:18: SYS_RESET_LENGTH = 7
+        const nextCfg0 = ((curCfg0 & 0x0fe3ffff) | 0xb01c0000) >>> 0;
         await esploader.writeReg(RTC_CNTL_WDTCONFIG0_REG, nextCfg0);
+        await esploader.writeReg(RTC_CNTL_WDTFEED_REG, 0x80000000);
         watchdogTriggered = true;
         await new Promise((r) => setTimeout(r, 150));
-      } catch {
-        // Expected if WDT resets the SoC before the register write ACK returns
+      } catch (wdtErr) {
+        if (!watchdogTriggered) {
+          appendLog(
+            `Watchdog reset note: ${wdtErr instanceof Error ? wdtErr.message : String(wdtErr)}`,
+          );
+        }
       }
 
       if (!watchdogTriggered) {
