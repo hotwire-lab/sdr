@@ -108,7 +108,7 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
 
   return (
     <section className="sdr-control-bar" aria-label="RF Tuner and DSP Controls">
-      {/* Primary Row: Essential Frequency, Span, Gain, and Main Actions */}
+      {/* Primary Row: Essential Stepping, Band Preset, Span, Gain, and Actions */}
       <div className="sdr-primary-row">
         {/* Frequency Tuner Cluster */}
         <div className="tuner-cluster">
@@ -154,19 +154,6 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
           >
             +
           </button>
-
-          <input
-            type="range"
-            className="tuner-slider"
-            aria-label="Frequency Range Slider"
-            min={SDR_MIN_FREQ_MHZ}
-            max={SDR_MAX_FREQ_MHZ}
-            step={1}
-            value={centerFreqMhz}
-            onChange={(e) => onCenterFreqChange(Number(e.target.value))}
-            disabled={!connected}
-            title={`${centerFreqMhz} MHz (${isSub2210 ? '5/6 LO' : 'Direct'})`}
-          />
 
           <select
             className="band-select"
@@ -237,19 +224,21 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
           <span className="hw-gain-badge">
             {isAgc ? `Auto (${activeGainIndex})` : `Gain ${gainIndex}`}
           </span>
-          {adcClip && (
-            <span
-              className="clip-alert-badge"
-              title="ADC Clipping! Lower manual gain or enable AGC."
-            >
-              CLIP
-            </span>
-          )}
-          {captureTruncated && (
-            <span className="trunc-alert-badge" title="Capture truncated">
-              TRUNC
-            </span>
-          )}
+          <div className="alert-slot" aria-live="polite">
+            {adcClip && (
+              <span
+                className="clip-alert-badge"
+                title="ADC Clipping! Lower manual gain or enable AGC."
+              >
+                CLIP
+              </span>
+            )}
+            {captureTruncated && (
+              <span className="trunc-alert-badge" title="Capture truncated">
+                TRUNC
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="control-spacer" />
@@ -276,6 +265,52 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
           >
             Raw I/Q
           </button>
+        </div>
+      </div>
+
+      {/* Full-Width Frequency Tuning Bar spanning 100% width directly above spectrum */}
+      <div className="sdr-fullwidth-tuner" aria-label="Full-Width Frequency Tuner">
+        <div className="tuner-track-info">
+          <div className="tuner-track-left">
+            <span className="track-freq-badge">
+              <span className="track-freq-val">{centerFreqMhz}</span>
+              <span className="track-freq-unit">MHz</span>
+            </span>
+            <span className={`track-mode-badge ${isSub2210 ? 'lo-active' : 'lo-direct'}`}>
+              {isSub2210 ? '⚡ 5/6 LO' : 'Direct RF'}
+            </span>
+            <span className="track-preset-name">
+              {matchedPreset ? matchedPreset.label : (isSub2210 ? 'Sub-2.2 GHz Band' : '2.4 GHz Band')}
+            </span>
+          </div>
+
+          <div className="tuner-track-right">
+            <span className="track-boundary-val">{SDR_MIN_FREQ_MHZ} MHz</span>
+            <span className="track-arrow">⇄</span>
+            <span className="track-boundary-val">{SDR_MAX_FREQ_MHZ} MHz</span>
+          </div>
+        </div>
+
+        <div className="tuner-slider-wrap">
+          <input
+            type="range"
+            className="fullwidth-tuner-slider"
+            aria-label="Full-width Frequency Tuner Slider"
+            min={SDR_MIN_FREQ_MHZ}
+            max={SDR_MAX_FREQ_MHZ}
+            step={1}
+            value={centerFreqMhz}
+            onChange={(e) => onCenterFreqChange(Number(e.target.value))}
+            disabled={!connected}
+            title={`${centerFreqMhz} MHz (${isSub2210 ? '5/6 LO Divider' : 'Direct Synthesizer'})`}
+          />
+          <div className="tuner-band-ticks" aria-hidden="true">
+            <span className="band-tick" style={{ left: '5.1%' }}>DECT</span>
+            <span className="band-tick band-tick-lo" style={{ left: '38.8%' }}>┆ 2210 LO</span>
+            <span className="band-tick" style={{ left: '53.6%' }}>Ham 13cm</span>
+            <span className="band-tick" style={{ left: '62.8%' }}>Wi-Fi / BLE</span>
+            <span className="band-tick" style={{ left: '85.8%' }}>LTE B7</span>
+          </div>
         </div>
       </div>
 

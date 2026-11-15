@@ -518,6 +518,11 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
               ΔM2-M1: {(m2.freqMhz - m1.freqMhz).toFixed(2)} MHz | {(m2Db - m1Db).toFixed(1)} dB
             </span>
           )}
+          {hoverInfo && (
+            <span className="hover-readout">
+              ⊕ {hoverInfo.freqMhz.toFixed(2)} MHz ({hoverInfo.dbFs.toFixed(1)} dBFS)
+            </span>
+          )}
         </div>
 
         <div className="hud-controls">
@@ -545,11 +550,6 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
           >
             M2
           </button>
-          {hoverInfo && (
-            <span className="hover-readout">
-              {hoverInfo.freqMhz.toFixed(2)} MHz · {hoverInfo.dbFs.toFixed(1)} dBFS
-            </span>
-          )}
         </div>
       </div>
 
@@ -613,22 +613,24 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             />
           </div>
           <div className="wf-spacer" />
-          <button
-            type="button"
-            className={`btn-mini ${waterfallPaused ? 'active' : ''}`}
-            onClick={() => setWaterfallPaused((p) => !p)}
-            title={waterfallPaused ? 'Resume waterfall roll' : 'Pause waterfall roll'}
-          >
-            {waterfallPaused ? 'Resume' : 'Pause'}
-          </button>
-          <button
-            type="button"
-            className="btn-mini"
-            onClick={clearWaterfall}
-            title="Clear waterfall display"
-          >
-            Clear
-          </button>
+          <div className="wf-actions">
+            <button
+              type="button"
+              className={`btn-mini btn-pause ${waterfallPaused ? 'active' : ''}`}
+              onClick={() => setWaterfallPaused((p) => !p)}
+              title={waterfallPaused ? 'Resume waterfall roll' : 'Pause waterfall roll'}
+            >
+              {waterfallPaused ? 'Resume' : 'Pause'}
+            </button>
+            <button
+              type="button"
+              className="btn-mini btn-clear"
+              onClick={clearWaterfall}
+              title="Clear waterfall display"
+            >
+              Clear
+            </button>
+          </div>
         </div>
 
         <div className="waterfall-pane">
