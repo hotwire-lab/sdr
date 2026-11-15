@@ -1,16 +1,11 @@
 import {
   BoardCapabilitiesFrame,
-  BoardCapabilityPin,
-  CHANNELS,
   CMD_BOOTLOADER,
-  CMD_FORCE_BATCH_STATE,
-  CMD_FORCE_PIN_STATE,
   CMD_GET_CAPS,
   CMD_PING_STATUS,
   CMD_SDR_STREAM_CTRL,
   CMD_SDR_SWEEP_CFG,
   CMD_SDR_TUNE,
-  CMD_SET_SIG_GEN,
   DecodedFrame,
   PROTOCOL_SYNC_0,
   PROTOCOL_SYNC_1,
@@ -24,11 +19,9 @@ import {
   SDR_SAMPLE_RATE_PRESETS,
   SdrRawIqFrame,
   SdrSpectrumFrame,
-  StatusTelemetryFrame,
   TYPE_BOARD_CAPABILITIES,
   TYPE_SDR_RAW_IQ_FRAME,
   TYPE_SDR_SPECTRUM_FRAME,
-  TYPE_STATUS_TELEMETRY,
 } from './types';
 
 export function computeXorChecksum(bytes: Uint8Array, length = bytes.byteLength): number {
@@ -62,58 +55,12 @@ export function buildPingStatusCmd(): Uint8Array {
   return buildCommandFrame(CMD_PING_STATUS);
 }
 
-export function buildPingTelemetryCmd(): Uint8Array {
-  return buildPingStatusCmd();
-}
-
 export function buildGetCapsCmd(): Uint8Array {
   return buildCommandFrame(CMD_GET_CAPS);
 }
 
 export function buildQueryCapabilitiesCmd(): Uint8Array {
   return buildGetCapsCmd();
-}
-
-export function buildPinForceCmd(
-  ch: number,
-  modeCode: number,
-  pullCode = 0,
-  autoProtect = 1,
-): Uint8Array {
-  return buildCommandFrame(CMD_FORCE_PIN_STATE, ch, modeCode, pullCode, autoProtect);
-}
-
-export function buildForcePinStateCmd(ch: number, modeCode: number): Uint8Array {
-  return buildPinForceCmd(ch, modeCode);
-}
-
-export function buildBatchForceCmd(
-  forceEnableMask: number,
-  forcedLevelMask: number,
-  pullMask = 0,
-): Uint8Array {
-  return buildCommandFrame(
-    CMD_FORCE_BATCH_STATE,
-    forceEnableMask,
-    forcedLevelMask,
-    pullMask,
-  );
-}
-
-export function buildForceBatchStateCmd(
-  dirMask: number,
-  outMask: number,
-): Uint8Array {
-  return buildBatchForceCmd(dirMask, outMask);
-}
-
-export function buildSetSigGenCmd(
-  ch: number,
-  dividerCode: number,
-  freqHigh = 0,
-  freqLow = 0,
-): Uint8Array {
-  return buildCommandFrame(CMD_SET_SIG_GEN, ch, dividerCode, freqHigh, freqLow);
 }
 
 export function buildBootloaderCmd(): Uint8Array {
@@ -199,20 +146,6 @@ export function resolveSdrRatePreset(rateBwCode: number) {
   );
 }
 
-export function decodeStatusTelemetry(payload: Uint8Array): StatusTelemetryFrame | null {
-  if (payload.byteLength !== 4) return null;
-  return {
-    type: 'telemetry',
-    physicalLevels: payload[0],
-    forceEnable: payload[1],
-    forceEnableMask: payload[1],
-    forcedLevel: payload[2],
-    forcedLevels: payload[2],
-    contentionMask: payload[3],
-    timestampMs: Date.now(),
-  };
-}
-
 export function decodeBoardCapabilities(
   payload: Uint8Array,
 ): BoardCapabilitiesFrame | null {
@@ -222,10 +155,6 @@ export function decodeBoardCapabilities(
     const parsed = JSON.parse(raw) as {
       board?: string;
       firmware?: string;
-      channels?: number;
-      maxRateHz?: number;
-      maxDepth?: number;
-      pins?: BoardCapabilityPin[];
       sdr?: boolean;
       capFlags?: number;
     };
@@ -240,12 +169,6 @@ export function decodeBoardCapabilities(
       type: 'capabilities',
       board,
       firmware: parsed.firmware ?? '1.0.0',
-      channels: typeof parsed.channels === 'number' ? parsed.channels : 8,
-      maxRateHz: typeof parsed.maxRateHz === 'number' ? parsed.maxRateHz : 20_000_000,
-      maxDepth: typeof parsed.maxDepth === 'number' ? parsed.maxDepth : 32768,
-      pins: Array.isArray(parsed.pins)
-        ? parsed.pins
-        : CHANNELS.map((c) => ({ ch: c.ch, label: c.label, gpio: c.gpio })),
       sdrCapable,
     };
   } catch {
@@ -338,8 +261,6 @@ export function decodeResponsePayload(
   payload: Uint8Array,
 ): DecodedFrame | null {
   switch (typeId) {
-    case TYPE_STATUS_TELEMETRY:
-      return decodeStatusTelemetry(payload);
     case TYPE_BOARD_CAPABILITIES:
       return decodeBoardCapabilities(payload);
     case TYPE_SDR_SPECTRUM_FRAME:

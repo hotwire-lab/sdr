@@ -1,7 +1,7 @@
 {
-  "name": "HotWire Pocket Lab (Logic Analyzer + 1.8–2.8 GHz SDR)",
+  "name": "HotWire SDR — 1.84–2.79 GHz RF Spectrum Analyzer",
   "short_name": "HotWire SDR",
-  "description": "8-Channel Logic Analyzer, Tri-State Force I/O, and 1.84–2.79 GHz RF Spectrum Analyzer (SDR) PWA for Seeed Studio XIAO ESP32-S3 via Web Serial and WebUSB.",
+  "description": "Dedicated 1.84–2.79 GHz RF Spectrum Analyzer, Waterfall, and Raw I/Q Receiver PWA for Seeed Studio XIAO ESP32-S3 via Web Serial.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -8,7 +8,6 @@ export interface TopToolbarProps {
   onConnect: () => void;
   onDisconnect: () => void;
   onStartDemo: () => void;
-  onAllZ: () => void;
   // SDR stream controls
   sdrStreaming: boolean;
   sdrTargetFps: number;
@@ -25,7 +24,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onConnect,
   onDisconnect,
   onStartDemo,
-  onAllZ,
   sdrStreaming,
   sdrTargetFps,
   onSdrTargetFpsChange,
@@ -151,15 +149,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         </div>
 
         <div className="action-cluster">
-          <button
-            type="button"
-            className="btn btn-warning-outline"
-            onClick={onAllZ}
-            disabled={!isConnected}
-            title="Release all Force-I/O pins to High-Z"
-          >
-            All Z
-          </button>
           <button
             type="button"
             className={`btn ${sdrStreaming ? 'btn-danger' : 'btn-accent'}`}

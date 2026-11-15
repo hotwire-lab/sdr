@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  CHANNELS,
-  PinForceState,
   SDR_BAND_PRESETS,
   SDR_FFT_SIZE_PRESETS,
   SDR_GAIN_AGC,
@@ -10,7 +8,6 @@ import {
   SDR_MAX_MANUAL_GAIN,
   SDR_MIN_FREQ_MHZ,
   SDR_SAMPLE_RATE_PRESETS,
-  StatusTelemetryFrame,
 } from '../protocol/types';
 
 export interface SdrControlBarProps {
@@ -39,10 +36,6 @@ export interface SdrControlBarProps {
   loDivActive: boolean;
   captureTruncated: boolean;
   onOpenRawIq: () => void;
-  telemetry: StatusTelemetryFrame | null;
-  pinForceStates: PinForceState[];
-  onCyclePinForce: (ch: number) => void;
-  onAllZ: () => void;
 }
 
 export const SdrControlBar: React.FC<SdrControlBarProps> = ({
@@ -71,10 +64,6 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
   loDivActive,
   captureTruncated,
   onOpenRawIq,
-  telemetry,
-  pinForceStates,
-  onCyclePinForce,
-  onAllZ,
 }) => {
   const [freqDraft, setFreqDraft] = useState(String(centerFreqMhz));
 
@@ -367,52 +356,6 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
         >
           Raw I/Q Inspector
         </button>
-      </div>
-
-      {/* Row 3: Inline Mini Force-I/O Strip (Spec 5.2) */}
-      <div className="sdr-row sdr-forceio-row">
-        <span className="mini-io-title">Force I/O (Core 0):</span>
-        <div className="mini-io-pins">
-          {CHANNELS.map((meta) => {
-            const bit = 1 << meta.ch;
-            const physicalHigh = telemetry ? (telemetry.physicalLevels & bit) !== 0 : false;
-            const forced = pinForceStates[meta.ch] ?? 'Z';
-            const contention = telemetry ? (telemetry.contentionMask & bit) !== 0 : false;
-            return (
-              <button
-                key={meta.ch}
-                type="button"
-                className={`mini-io-pin force-${forced.toLowerCase()} ${
-                  contention ? 'contention' : ''
-                }`}
-                onClick={() => onCyclePinForce(meta.ch)}
-                disabled={!connected}
-                title={`GPIO${meta.gpio} (${meta.label}) — Mode: ${forced}, Read: ${
-                  physicalHigh ? 'HIGH' : 'LOW'
-                }. Click to cycle Z -> 1 -> 0 -> Z`}
-              >
-                <span
-                  className={`mini-led ${physicalHigh ? 'on' : 'off'}`}
-                  style={{ '--ch-color': meta.color } as React.CSSProperties}
-                />
-                <span className="mini-pin-name">{meta.label}</span>
-                <span className="mini-pin-mode">{contention ? 'ERR' : forced}</span>
-              </button>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          className="btn-step"
-          onClick={onAllZ}
-          disabled={!connected}
-          title="Release all Force-I/O pins to High-Z"
-        >
-          Release Z
-        </button>
-        <span className="mini-io-note">
-          Toggle D0–D7 outputs to observe live RF switching spurs & coupling in the waterfall
-        </span>
       </div>
     </section>
   );

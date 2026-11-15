@@ -3,7 +3,7 @@
  *
  * Implements Spec: hotwire_sdr_rf_spectrum_analyzer_extension_specification_xiao_esp32_s3.md
  * - Dual-Core Operation:
- *     Core 0: USB CDC Binary Protocol Demuxer, Force-I/O, Contention Watchdog, Signal Generator
+ *     Core 0: USB CDC Binary Protocol Demuxer & Serial Command Dispatcher
  *     Core 1: Dedicated ESP32-S3 RF Dump DSP Engine (IQ acquisition, FFT/Windowing, Waterfall/Spectrum stream)
  * - RF Dump Engine Memory Region Reserved: 0x3FCD0000 .. 0x3FCDFFFF
  * - Tuning Range: 1842 .. 2790 MHz (5/6 LO divider via I2C block 0x63 < 2210 MHz)
@@ -61,21 +61,14 @@ extern "C" {
 }
 
 // -----------------------------------------------------------------------------
-// Hardware Constants & Channel Mapping (XIAO ESP32-S3)
+// Hardware Constants (XIAO ESP32-S3)
 // -----------------------------------------------------------------------------
 
 #define HOTWIRE_FW_VERSION "2.0.0-sdr"
 #define HOTWIRE_BOARD_NAME "XIAO-ESP32-S3"
 
-static const uint8_t CHANNEL_COUNT = 8;
 static const char* const BOARD_NAME = HOTWIRE_BOARD_NAME;
-static const uint8_t CHANNEL_PINS[CHANNEL_COUNT] = { 1, 2, 3, 4, 5, 6, 43, 44 };
-static const char* const CHANNEL_LABELS[CHANNEL_COUNT] = { "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7" };
 static const uint32_t CPU_FREQ_HZ = 240000000UL;
-
-static const uint64_t CONTENTION_CUTOFF_US = 20000ULL;
-static const uint64_t TELEMETRY_INTERVAL_US = 40000ULL;
-static const uint64_t CHANGE_THROTTLE_US = 4000ULL;
 
 // -----------------------------------------------------------------------------
 // ESP32-S3 RF Dump Engine Constants & Registers
@@ -113,15 +106,11 @@ static const uint8_t SYNC_BYTE_1 = 0x55;
 
 static const uint8_t CMD_PING_STATUS = 0x01;
 static const uint8_t CMD_GET_CAPS    = 0x02;
-static const uint8_t CMD_PIN_FORCE   = 0x10;
-static const uint8_t CMD_BATCH_FORCE = 0x11;
-static const uint8_t CMD_SIG_GEN     = 0x12;
 static const uint8_t CMD_SDR_TUNE    = 0x30;
 static const uint8_t CMD_SDR_STREAM  = 0x31;
 static const uint8_t CMD_SDR_SWEEP   = 0x32;
 static const uint8_t CMD_BOOTLOADER  = 0xF0;
 
-static const uint8_t TYPE_STATUS_TELEMETRY   = 0x81;
 static const uint8_t TYPE_BOARD_CAPABILITIES = 0x83;
 static const uint8_t TYPE_SDR_SPECTRUM_FRAME = 0x84;
 static const uint8_t TYPE_SDR_RAW_IQ_FRAME   = 0x85;
@@ -133,18 +122,6 @@ static const uint8_t TYPE_SDR_RAW_IQ_FRAME   = 0x85;
 static SemaphoreHandle_t stateMutex = nullptr;
 static SemaphoreHandle_t txMutex = nullptr;
 static portMUX_TYPE rfSpinlock = portMUX_INITIALIZER_UNLOCKED;
-static portMUX_TYPE sigSpinlock = portMUX_INITIALIZER_UNLOCKED;
-
-static volatile uint8_t chMode[CHANNEL_COUNT] = { 0 };
-static volatile uint8_t chPull[CHANNEL_COUNT] = { 0 };
-static volatile uint8_t forceEnableMask = 0x00;
-static volatile uint8_t forcedLevelMask = 0x00;
-static volatile uint8_t protectMask = 0xFF;
-static volatile uint8_t contentionMask = 0x00;
-static volatile bool immediateTelemetryPending = false;
-
-static bool mismatchActive[CHANNEL_COUNT] = { false };
-static uint64_t mismatchStartUs[CHANNEL_COUNT] = { 0 };
 
 // SDR working buffers (heap allocated outside reserved 0x3FCD0000..0x3FCDFFFF)
 static int16_t* sdrIqI = nullptr;
@@ -158,9 +135,6 @@ static uint8_t* sdrTxFrame = nullptr; // 5 + 8 + max(2048, 32760) + 1 = 32782 by
 
 static TaskHandle_t core0TaskHandle = nullptr;
 static TaskHandle_t core1TaskHandle = nullptr;
-static TaskHandle_t sigGenTaskHandle = nullptr;
-static volatile uint8_t sigGenMode = 0;
-static volatile uint8_t sigGenPinMask = 0x00;
 
 // SDR Control & Runtime State
 struct SdrConfig {
@@ -188,63 +162,6 @@ static uint8_t sdrAppliedBwCode = 0;
 static uint8_t sdrAppliedGainIdx = 0xFF;
 static bool sdrAppliedLoDiv = false;
 static bool sdrTuneInitialized = false;
-
-// -----------------------------------------------------------------------------
-// Fast Single-Cycle Register Acquisition (IRAM)
-// -----------------------------------------------------------------------------
-
-static inline uint8_t IRAM_ATTR readAllChannelsFast() {
-  uint32_t low = (GPIO.in >> 1) & 0x3FU;
-  uint32_t high = ((GPIO.in1.val >> 11) & 0x03U) << 6;
-  return (uint8_t)(low | high);
-}
-
-static inline void IRAM_ATTR preloadOutputLatch(uint8_t pin, uint8_t level) {
-  if (pin < 32) {
-    if (level) GPIO.out_w1ts = (1UL << pin);
-    else GPIO.out_w1tc = (1UL << pin);
-  } else {
-    uint32_t bit = (1UL << (pin - 32));
-    if (level) GPIO.out1_w1ts.val = bit;
-    else GPIO.out1_w1tc.val = bit;
-  }
-}
-
-static void applyChannelHardware(uint8_t ch, uint8_t mode, uint8_t pull) {
-  if (ch >= CHANNEL_COUNT) return;
-  const uint8_t pin = CHANNEL_PINS[ch];
-
-  if (mode == 1 || mode == 2) {
-    const uint8_t level = (mode == 2) ? 1 : 0;
-    preloadOutputLatch(pin, level);
-    gpio_set_level((gpio_num_t)pin, level);
-    pinMode(pin, OUTPUT);
-    gpio_set_level((gpio_num_t)pin, level);
-  } else {
-    uint8_t inputMode = INPUT;
-    if (pull == 1) inputMode = INPUT_PULLUP;
-    else if (pull == 2) inputMode = INPUT_PULLDOWN;
-    pinMode(pin, inputMode);
-  }
-}
-
-static void releaseAllChannels() {
-  if (stateMutex) xSemaphoreTake(stateMutex, portMAX_DELAY);
-  sigGenMode = 0;
-  sigGenPinMask = 0x00;
-  forceEnableMask = 0x00;
-  forcedLevelMask = 0x00;
-  contentionMask = 0x00;
-  for (uint8_t ch = 0; ch < CHANNEL_COUNT; ch++) {
-    chMode[ch] = 0;
-    chPull[ch] = 0;
-    mismatchActive[ch] = false;
-    mismatchStartUs[ch] = 0;
-    applyChannelHardware(ch, 0, 0);
-  }
-  immediateTelemetryPending = true;
-  if (stateMutex) xSemaphoreGive(stateMutex);
-}
 
 // -----------------------------------------------------------------------------
 // Non-Blocking Chunked Binary Frame Transmitter
@@ -321,31 +238,9 @@ static void sendBinaryFrame(uint8_t typeId, const uint8_t* payload, uint16_t pay
   if (txMutex) xSemaphoreGive(txMutex);
 }
 
-static void sendTelemetryFrame() {
-  uint8_t payload[4];
-  if (stateMutex) xSemaphoreTake(stateMutex, portMAX_DELAY);
-  payload[0] = readAllChannelsFast();
-  payload[1] = forceEnableMask;
-  payload[2] = forcedLevelMask;
-  payload[3] = contentionMask;
-  if (stateMutex) xSemaphoreGive(stateMutex);
-  sendBinaryFrame(TYPE_STATUS_TELEMETRY, payload, sizeof(payload));
-}
-
 static void sendCapabilitiesFrame() {
   static const char CAPS_JSON[] =
-    "{\"board\":\"XIAO-ESP32-S3\",\"firmware\":\"" HOTWIRE_FW_VERSION "\",\"channels\":8,"
-    "\"sdr\":true,\"capFlags\":7,"
-    "\"pins\":["
-    "{\"ch\":0,\"label\":\"D0\",\"gpio\":1},"
-    "{\"ch\":1,\"label\":\"D1\",\"gpio\":2},"
-    "{\"ch\":2,\"label\":\"D2\",\"gpio\":3},"
-    "{\"ch\":3,\"label\":\"D3\",\"gpio\":4},"
-    "{\"ch\":4,\"label\":\"D4\",\"gpio\":5},"
-    "{\"ch\":5,\"label\":\"D5\",\"gpio\":6},"
-    "{\"ch\":6,\"label\":\"D6\",\"gpio\":43},"
-    "{\"ch\":7,\"label\":\"D7\",\"gpio\":44}"
-    "]}";
+    "{\"board\":\"XIAO-ESP32-S3\",\"firmware\":\"" HOTWIRE_FW_VERSION "\",\"sdr\":true}";
   sendBinaryFrame(TYPE_BOARD_CAPABILITIES, (const uint8_t*)CAPS_JSON, (uint16_t)(sizeof(CAPS_JSON) - 1));
 }
 
@@ -908,129 +803,12 @@ static void Engine_Core1_Task(void* arg) {
 }
 
 // -----------------------------------------------------------------------------
-// Command Handlers & Contention Watchdog (Core 0)
+// Command Handlers (Core 0)
 // -----------------------------------------------------------------------------
-
-static void handlePinForceCmd(uint8_t p1Ch, uint8_t p2Mode, uint8_t p3Pull, uint8_t p4Protect) {
-  if (p1Ch == 0xFF) {
-    releaseAllChannels();
-    return;
-  }
-  if (p1Ch >= CHANNEL_COUNT) return;
-
-  const uint8_t ch = p1Ch;
-  const uint8_t bit = (uint8_t)(1U << ch);
-  const uint8_t mode = (p2Mode <= 2) ? p2Mode : 0;
-  const uint8_t pull = (p3Pull <= 2) ? p3Pull : 0;
-
-  if (stateMutex) xSemaphoreTake(stateMutex, portMAX_DELAY);
-  chMode[ch] = mode;
-  chPull[ch] = pull;
-  sigGenPinMask &= (uint8_t)(~bit);
-  contentionMask &= (uint8_t)(~bit);
-  mismatchActive[ch] = false;
-  mismatchStartUs[ch] = 0;
-  if (p4Protect) protectMask |= bit; else protectMask &= (uint8_t)(~bit);
-
-  if (mode == 1) {
-    forceEnableMask |= bit;
-    forcedLevelMask &= (uint8_t)(~bit);
-  } else if (mode == 2) {
-    forceEnableMask |= bit;
-    forcedLevelMask |= bit;
-  } else {
-    forceEnableMask &= (uint8_t)(~bit);
-    forcedLevelMask &= (uint8_t)(~bit);
-  }
-  applyChannelHardware(ch, mode, pull);
-  immediateTelemetryPending = true;
-  if (stateMutex) xSemaphoreGive(stateMutex);
-}
-
-static void handleBatchForceCmd(uint8_t p1EnableMask, uint8_t p2LevelMask, uint8_t p3PullUpMask) {
-  if (stateMutex) xSemaphoreTake(stateMutex, portMAX_DELAY);
-  sigGenPinMask &= (uint8_t)(~p1EnableMask);
-  forceEnableMask = p1EnableMask;
-  forcedLevelMask = p2LevelMask & p1EnableMask;
-  contentionMask = 0x00;
-
-  for (uint8_t ch = 0; ch < CHANNEL_COUNT; ch++) {
-    const uint8_t bit = (uint8_t)(1U << ch);
-    mismatchActive[ch] = false;
-    mismatchStartUs[ch] = 0;
-    if (p1EnableMask & bit) {
-      chMode[ch] = (p2LevelMask & bit) ? 2 : 1;
-      chPull[ch] = 0;
-    } else {
-      chMode[ch] = 0;
-      chPull[ch] = (p3PullUpMask & bit) ? 1 : 0;
-    }
-    applyChannelHardware(ch, chMode[ch], chPull[ch]);
-  }
-  immediateTelemetryPending = true;
-  if (stateMutex) xSemaphoreGive(stateMutex);
-}
-
-static void IRAM_ATTR sigGenWriteOutputs(uint8_t outMask, uint8_t valBits) {
-  uint32_t lowOutMask = ((uint32_t)(outMask & 0x3FU)) << 1;
-  uint32_t lowSet = (((uint32_t)(valBits & 0x3FU)) << 1) & lowOutMask;
-  uint32_t lowClr = (~lowSet) & lowOutMask;
-  if (lowSet) GPIO.out_w1ts = lowSet;
-  if (lowClr) GPIO.out_w1tc = lowClr;
-}
-
-static void handleSigGenCmd(uint8_t p1Mode, uint8_t p2PinMask) {
-  if (stateMutex) xSemaphoreTake(stateMutex, portMAX_DELAY);
-  if (p1Mode == 0 || p2PinMask == 0) {
-    sigGenMode = 0;
-    sigGenPinMask = 0x00;
-    for (uint8_t ch = 0; ch < CHANNEL_COUNT; ch++) {
-      chMode[ch] = 0; chPull[ch] = 0;
-      applyChannelHardware(ch, 0, 0);
-    }
-    forceEnableMask = 0x00;
-    forcedLevelMask = 0x00;
-  } else {
-    sigGenMode = p1Mode;
-    sigGenPinMask = p2PinMask;
-    for (uint8_t ch = 0; ch < CHANNEL_COUNT; ch++) {
-      uint8_t bit = (uint8_t)(1U << ch);
-      if (p2PinMask & bit) {
-        chMode[ch] = 1; chPull[ch] = 0;
-        forceEnableMask |= bit;
-        applyChannelHardware(ch, 1, 0);
-      } else {
-        chMode[ch] = 0; chPull[ch] = 0;
-        forceEnableMask &= (uint8_t)(~bit);
-        applyChannelHardware(ch, 0, 0);
-      }
-    }
-  }
-  immediateTelemetryPending = true;
-  if (stateMutex) xSemaphoreGive(stateMutex);
-  if (sigGenTaskHandle && p1Mode != 0) xTaskNotifyGive(sigGenTaskHandle);
-}
-
-static void SigGen_Core0_Task(void* arg) {
-  (void)arg;
-  uint32_t step = 0;
-  for (;;) {
-    uint8_t mode = sigGenMode;
-    uint8_t mask = sigGenPinMask;
-    if (mode == 0 || mask == 0) {
-      ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
-      continue;
-    }
-    sigGenWriteOutputs(mask, (uint8_t)(step & 0x3FU));
-    step++;
-    vTaskDelay(1);
-  }
-}
 
 static void handleEnterBootloader(uint8_t p1, uint8_t p2, uint8_t p3, uint8_t p4) {
   if (p1 != 0xB0 || p2 != 0x07 || p3 != 0x10 || p4 != 0xAD) return;
   sdrCfg.streamMode = SDR_STREAM_STOP;
-  releaseAllChannels();
   delay(20);
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
   delay(10);
@@ -1046,19 +824,10 @@ static void dispatchBinaryCommand(const uint8_t* frame) {
 
   switch (cmdId) {
     case CMD_PING_STATUS:
-      sendTelemetryFrame();
+      sendCapabilitiesFrame();
       break;
     case CMD_GET_CAPS:
       sendCapabilitiesFrame();
-      break;
-    case CMD_PIN_FORCE:
-      handlePinForceCmd(p1, p2, p3, p4);
-      break;
-    case CMD_BATCH_FORCE:
-      handleBatchForceCmd(p1, p2, p3);
-      break;
-    case CMD_SIG_GEN:
-      handleSigGenCmd(p1, p2);
       break;
     case CMD_SDR_TUNE: {
       uint16_t freq = (uint16_t)(p1 | ((uint16_t)p2 << 8));
@@ -1099,37 +868,23 @@ static void dispatchBinaryCommand(const uint8_t* frame) {
 static void handleAsciiLine(const char* line) {
   if (strcmp(line, "help") == 0) {
     sendTextLocked(
-      "\r\nHotWire SDR + LA Console Commands:\r\n"
+      "\r\nHotWire SDR Console Commands:\r\n"
       "  help        - show command summary\r\n"
-      "  status      - print force mask & SDR status\r\n"
+      "  status      - print active tuner/gain/LO divider state\r\n"
       "  sdr status  - print active tuner/gain/LO divider state\r\n"
       "  sdr stop    - halt SDR streaming\r\n"
       "  tune <mhz>  - tune SDR frequency (1842..2790 MHz)\r\n"
-      "  pins        - show XIAO ESP32-S3 D0..D7 GPIO map\r\n"
-      "  release     - set all D0..D7 channels to High-Z\r\n"
       "  version     - show firmware version\r\n"
     );
-  } else if (strcmp(line, "pins") == 0) {
-    char buf[160];
-    snprintf(
-      buf, sizeof(buf),
-      "\r\nD0=GPIO%u D1=GPIO%u D2=GPIO%u D3=GPIO%u D4=GPIO%u D5=GPIO%u D6=GPIO%u D7=GPIO%u\r\n",
-      CHANNEL_PINS[0], CHANNEL_PINS[1], CHANNEL_PINS[2], CHANNEL_PINS[3],
-      CHANNEL_PINS[4], CHANNEL_PINS[5], CHANNEL_PINS[6], CHANNEL_PINS[7]
-    );
-    sendTextLocked(buf);
-  } else if (strcmp(line, "release") == 0) {
-    releaseAllChannels();
-    sendTextLocked("\r\nAll channels released to Z.\r\n");
   } else if (strcmp(line, "sdr stop") == 0) {
     sdrCfg.streamMode = SDR_STREAM_STOP;
     sendTextLocked("\r\n[SDR] Stream stopped.\r\n");
   } else if (strcmp(line, "sdr status") == 0 || strcmp(line, "status") == 0) {
-    char buf[224];
+    char buf[192];
     snprintf(
       buf, sizeof(buf),
-      "\r\n[STATUS] board=%s forceEn=0x%02X forced=0x%02X freq=%uMHz bw=%u gain=%u loDiv=%s mode=%u phy=%u(err=%d)\r\n",
-      BOARD_NAME, forceEnableMask, forcedLevelMask,
+      "\r\n[STATUS] board=%s freq=%uMHz bw=%u gain=%u loDiv=%s mode=%u phy=%u(err=%d)\r\n",
+      BOARD_NAME,
       sdrAppliedFreqMhz, sdrAppliedBwCode, sdrAppliedGainIdx,
       sdrAppliedLoDiv ? "5/6" : "1/1", sdrCfg.streamMode,
       wifiPhyReady ? 1U : 0U, lastWifiErr
@@ -1156,53 +911,12 @@ static void handleAsciiLine(const char* line) {
   }
 }
 
-static void checkContentionWatchdog(uint64_t nowUs) {
-  if (stateMutex) xSemaphoreTake(stateMutex, portMAX_DELAY);
-
-  const uint8_t phys = readAllChannelsFast();
-  bool anyTripped = false;
-
-  for (uint8_t ch = 0; ch < CHANNEL_COUNT; ch++) {
-    const uint8_t bit = (uint8_t)(1U << ch);
-    if ((forceEnableMask & bit) == 0 || (protectMask & bit) == 0 || (sigGenPinMask & bit) != 0) {
-      mismatchActive[ch] = false;
-      continue;
-    }
-
-    const uint8_t target = (forcedLevelMask & bit) ? 1U : 0U;
-    const uint8_t actual = (phys & bit) ? 1U : 0U;
-    if (actual != target) {
-      if (!mismatchActive[ch]) {
-        mismatchActive[ch] = true;
-        mismatchStartUs[ch] = nowUs;
-      } else if ((nowUs - mismatchStartUs[ch]) >= CONTENTION_CUTOFF_US) {
-        chMode[ch] = 0;
-        chPull[ch] = 0;
-        forceEnableMask &= (uint8_t)(~bit);
-        forcedLevelMask &= (uint8_t)(~bit);
-        contentionMask |= bit;
-        mismatchActive[ch] = false;
-        applyChannelHardware(ch, 0, 0);
-        anyTripped = true;
-      }
-    } else {
-      mismatchActive[ch] = false;
-    }
-  }
-
-  if (anyTripped) immediateTelemetryPending = true;
-  if (stateMutex) xSemaphoreGive(stateMutex);
-}
-
 static void Protocol_Core0_Task(void* arg) {
   (void)arg;
   uint8_t rxFrame[8];
   uint8_t rxState = 0;
   char asciiBuf[96];
   size_t asciiLen = 0;
-  uint8_t lastPhysical = readAllChannelsFast();
-  uint64_t lastTelemetryUs = 0;
-  uint64_t lastChangeEmitUs = 0;
 
   for (;;) {
     while (Serial.available() > 0) {
@@ -1243,34 +957,6 @@ static void Protocol_Core0_Task(void* arg) {
       }
     }
 
-    const uint64_t nowUs = (uint64_t)esp_timer_get_time();
-    checkContentionWatchdog(nowUs);
-
-    const uint8_t curPhysical = readAllChannelsFast();
-    const bool physChanged = (curPhysical != lastPhysical);
-    bool shouldEmit = false;
-
-    if (immediateTelemetryPending) {
-      immediateTelemetryPending = false;
-      shouldEmit = true;
-    } else if (physChanged && (nowUs - lastChangeEmitUs) >= CHANGE_THROTTLE_US) {
-      shouldEmit = true;
-      lastChangeEmitUs = nowUs;
-    } else if ((nowUs - lastTelemetryUs) >= TELEMETRY_INTERVAL_US) {
-      shouldEmit = true;
-    }
-
-    if (shouldEmit && sdrCfg.streamMode == SDR_STREAM_STOP) {
-      lastPhysical = curPhysical;
-      lastTelemetryUs = nowUs;
-      sendTelemetryFrame();
-    } else if (shouldEmit && (nowUs - lastTelemetryUs) >= 200000ULL) {
-      // Keep low-overhead Force-I/O status telemetry running at 5 Hz even during SDR stream
-      lastPhysical = curPhysical;
-      lastTelemetryUs = nowUs;
-      sendTelemetryFrame();
-    }
-
     vTaskDelay(1);
   }
 }
@@ -1305,10 +991,7 @@ void setup() {
   sdrQuantBins  = (uint8_t*)allocPreferredCaps(MAX_FFT_BINS, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);
   sdrTxFrame    = (uint8_t*)allocPreferredCaps(16U + RF_DUMP_MAX_SAMPLES * 2U, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_8BIT);
 
-  releaseAllChannels();
-
-  xTaskCreatePinnedToCore(Protocol_Core0_Task, "HotWire_Proto_C0", 6144, nullptr, 3, &core0TaskHandle, 0);
-  xTaskCreatePinnedToCore(SigGen_Core0_Task, "HotWire_SigGen_C0", 2048, nullptr, 1, &sigGenTaskHandle, 0);
+  xTaskCreatePinnedToCore(Protocol_Core0_Task, "HotWire_Proto_C0", 4096, nullptr, 3, &core0TaskHandle, 0);
   xTaskCreatePinnedToCore(Engine_Core1_Task, "HotWire_Engine_C1", 8192, nullptr, configMAX_PRIORITIES - 2, &core1TaskHandle, 1);
 }
 

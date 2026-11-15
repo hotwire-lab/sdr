@@ -6,12 +6,9 @@ import {
   resolveSdrRatePreset,
 } from '../protocol/codec';
 import {
-  CHANNELS,
-  CMD_BATCH_FORCE,
   CMD_BOOTLOADER,
   CMD_GET_CAPS,
   CMD_PING_STATUS,
-  CMD_PIN_FORCE,
   CMD_SDR_STREAM_CTRL,
   CMD_SDR_SWEEP_CFG,
   CMD_SDR_TUNE,
@@ -29,7 +26,6 @@ import {
   TYPE_BOARD_CAPABILITIES,
   TYPE_SDR_RAW_IQ_FRAME,
   TYPE_SDR_SPECTRUM_FRAME,
-  TYPE_STATUS_TELEMETRY,
 } from '../protocol/types';
 import {
   ScreenWakeLockSentinel,
@@ -168,16 +164,8 @@ export class SerialTransport {
   private webUsbDesc: CdcEndpointDescriptor | null = null;
   private webUsbReadActive = false;
 
-  // Demo hardware simulator state (Force-I/O + SDR RF)
-  private demoTimer: number | null = null;
+  // Demo hardware simulator state (SDR RF)
   private demoSdrTimer: number | null = null;
-  private demoForceEnable = 0x00;
-  private demoForcedLevel = 0x00;
-  private demoPullUpMask = 0x00;
-  private demoPullDownMask = 0x00;
-  private demoContentionMask = 0x00;
-  private demoShortSimPin: number | null = null;
-  private demoTick = 0;
   private demoAsciiLine = '';
 
   private demoSdrCenterMhz = 2437;
@@ -396,14 +384,6 @@ export class SerialTransport {
 
   async startDemo(): Promise<void> {
     await this.closeAllHandles(false);
-    const epoch = ++this.sessionEpoch;
-    this.demoForceEnable = 0x00;
-    this.demoForcedLevel = 0x00;
-    this.demoPullUpMask = 0x00;
-    this.demoPullDownMask = 0x00;
-    this.demoContentionMask = 0x00;
-    this.demoShortSimPin = null;
-    this.demoTick = 0;
     this.demoAsciiLine = '';
 
     this.demoSdrCenterMhz = 2437;
@@ -426,19 +406,12 @@ export class SerialTransport {
     });
 
     this.emitDemoCaps();
-    this.emitDemoTelemetry();
     this.emitBytes(
       new TextEncoder().encode(
-        '\r\n\x1b[32m[Demo] Simulated XIAO-ESP32-S3 SDR + Logic Analyzer ready.\x1b[0m\r\n' +
-          'Type \x1b[33mhelp\x1b[0m, \x1b[33msdr status\x1b[0m, or \x1b[33mtune 1910\x1b[0m. Toggling Force I/O D0-D7 injects RF bursts!\r\n',
+        '\r\n\x1b[32m[Demo] Simulated XIAO-ESP32-S3 SDR ready.\x1b[0m\r\n' +
+          'Type \x1b[33mhelp\x1b[0m, \x1b[33msdr status\x1b[0m, or \x1b[33mtune 1910\x1b[0m.\r\n',
       ),
     );
-
-    this.demoTimer = window.setInterval(() => {
-      if (epoch !== this.sessionEpoch) return;
-      this.demoTick += 1;
-      this.emitDemoTelemetry();
-    }, 40);
   }
 
   private async openWebSerialPort(port: WebSerialPort): Promise<void> {
@@ -698,10 +671,6 @@ export class SerialTransport {
   }
 
   private async closeAllHandles(preserveSerialPortRef: boolean): Promise<void> {
-    if (this.demoTimer !== null) {
-      window.clearInterval(this.demoTimer);
-      this.demoTimer = null;
-    }
     if (this.demoSdrTimer !== null) {
       window.clearInterval(this.demoSdrTimer);
       this.demoSdrTimer = null;
@@ -803,69 +772,11 @@ export class SerialTransport {
 
       switch (cmdId) {
         case CMD_PING_STATUS:
-          this.emitDemoTelemetry();
+          this.emitDemoCaps();
           return;
 
         case CMD_GET_CAPS:
           this.emitDemoCaps();
-          return;
-
-        case CMD_PIN_FORCE:
-          if (p1 === 0xff) {
-            this.demoForceEnable = 0;
-            this.demoForcedLevel = 0;
-            this.demoPullUpMask = 0;
-            this.demoPullDownMask = 0;
-            this.demoContentionMask = 0;
-          } else if (p1 < 8) {
-            const bit = 1 << p1;
-            this.demoContentionMask &= ~bit;
-            if (p2 === 1 || p2 === 2) {
-              this.demoForceEnable |= bit;
-              if (p2 === 2) this.demoForcedLevel |= bit;
-              else this.demoForcedLevel &= ~bit;
-              this.demoPullUpMask &= ~bit;
-              this.demoPullDownMask &= ~bit;
-
-              if (p4 !== 0 && this.demoShortSimPin === p1) {
-                window.setTimeout(() => {
-                  if (this.snapshot.transport !== 'demo') return;
-                  this.demoForceEnable &= ~bit;
-                  this.demoForcedLevel &= ~bit;
-                  this.demoContentionMask |= bit;
-                  this.emitDemoTelemetry();
-                  this.emitBytes(
-                    new TextEncoder().encode(
-                      `\r\n\x1b[31m[SHORT!] Contention >20ms on D${p1}: reverted to Z\x1b[0m\r\n`,
-                    ),
-                  );
-                }, 25);
-              }
-            } else {
-              this.demoForceEnable &= ~bit;
-              this.demoForcedLevel &= ~bit;
-              if (p3 === 1) {
-                this.demoPullUpMask |= bit;
-                this.demoPullDownMask &= ~bit;
-              } else if (p3 === 2) {
-                this.demoPullDownMask |= bit;
-                this.demoPullUpMask &= ~bit;
-              } else {
-                this.demoPullUpMask &= ~bit;
-                this.demoPullDownMask &= ~bit;
-              }
-            }
-          }
-          this.emitDemoTelemetry();
-          return;
-
-        case CMD_BATCH_FORCE:
-          this.demoForceEnable = p1;
-          this.demoForcedLevel = p2 & p1;
-          this.demoPullUpMask = p3 & ~p1;
-          this.demoPullDownMask &= ~p1;
-          this.demoContentionMask = 0;
-          this.emitDemoTelemetry();
           return;
 
         case CMD_SDR_TUNE: {
@@ -916,12 +827,9 @@ export class SerialTransport {
         case CMD_BOOTLOADER:
           this.stopDemoSdrTimer();
           this.demoSdrStreamMode = SDR_STREAM_STOP;
-          this.demoForceEnable = 0;
-          this.demoForcedLevel = 0;
-          this.emitDemoTelemetry();
           this.emitBytes(
             new TextEncoder().encode(
-              '\r\n\x1b[33m[Demo] Simulated 0xF0 CMD_BOOTLOADER received (all pins released to Z).\x1b[0m\r\n',
+              '\r\n\x1b[33m[Demo] Simulated 0xF0 CMD_BOOTLOADER received.\x1b[0m\r\n',
             ),
           );
           return;
@@ -944,26 +852,7 @@ export class SerialTransport {
     if (cmd === 'help') {
       this.emitBytes(
         new TextEncoder().encode(
-          '\r\nDemo Commands: help, status, pins, release, short <0..7|off>, sdr status, sdr stop, tune <MHz>, version\r\n',
-        ),
-      );
-    } else if (cmd === 'pins') {
-      this.emitBytes(
-        new TextEncoder().encode(
-          '\r\nCH0=D0(GPIO1) CH1=D1(GPIO2) CH2=D2(GPIO3) CH3=D3(GPIO4)\r\n' +
-            'CH4=D4(GPIO5) CH5=D5(GPIO6) CH6=D6(GPIO43) CH7=D7(GPIO44)\r\n',
-        ),
-      );
-    } else if (cmd === 'release') {
-      this.demoForceEnable = 0;
-      this.demoForcedLevel = 0;
-      this.demoContentionMask = 0;
-      this.emitDemoTelemetry();
-      this.emitBytes(new TextEncoder().encode('\r\nAll channels released to Z.\r\n'));
-    } else if (cmd === 'status') {
-      this.emitBytes(
-        new TextEncoder().encode(
-          `\r\n[STATUS] forceEn=0x${this.demoForceEnable.toString(16)} forced=0x${this.demoForcedLevel.toString(16)} contention=0x${this.demoContentionMask.toString(16)} sdrFreq=${this.demoSdrCenterMhz}MHz\r\n`,
+          '\r\nSDR Demo Commands: help, sdr status, sdr stop, tune <MHz>, version\r\n',
         ),
       );
     } else if (cmd === 'sdr status') {
@@ -985,24 +874,6 @@ export class SerialTransport {
         this.emitBytes(
           new TextEncoder().encode(`\r\n[SDR] Tuned to ${this.demoSdrCenterMhz} MHz.\r\n`),
         );
-      }
-    } else if (cmd.startsWith('short')) {
-      const arg = cmd.split(/\s+/)[1];
-      if (arg === 'off') {
-        this.demoShortSimPin = null;
-        this.emitBytes(
-          new TextEncoder().encode('\r\nShort-circuit simulation disabled.\r\n'),
-        );
-      } else {
-        const p = Number(arg ?? '7');
-        if (Number.isInteger(p) && p >= 0 && p <= 7) {
-          this.demoShortSimPin = p;
-          this.emitBytes(
-            new TextEncoder().encode(
-              `\r\nSimulated short circuit armed on D${p}. Force D${p} to 0 or 1 to test 20ms cutoff!\r\n`,
-            ),
-          );
-        }
       }
     } else if (cmd === 'version') {
       this.emitBytes(
@@ -1084,20 +955,6 @@ export class SerialTransport {
 
     // LTE Band 7 Downlink wideband plateau
     emitters.push({ freqMhz: 2650, bwMhz: 14, peakDbFs: -45, shape: 'ofdm' });
-
-    // Live coupling from Force I/O pins (D0..D7 HIGH injects RF test carriers/spurs!)
-    const activeForcedHigh = this.demoForceEnable & this.demoForcedLevel;
-    for (let ch = 0; ch < 8; ch++) {
-      if ((activeForcedHigh >> ch) & 1) {
-        const offsetMhz = (ch - 3.5) * 4.5;
-        emitters.push({
-          freqMhz: this.demoSdrCenterMhz + offsetMhz,
-          bwMhz: 0.9,
-          peakDbFs: -26,
-          shape: 'spur',
-        });
-      }
-    }
 
     return emitters;
   }
@@ -1207,7 +1064,6 @@ export class SerialTransport {
   private emitDemoSdrRawIq(): void {
     this.demoSdrFrameCounter += 1;
     const sampleCount = Math.max(256, Math.min(4096, this.demoSdrIqKb * 1024));
-    const activeForcedHigh = this.demoForceEnable & this.demoForcedLevel;
     const manualGain = this.demoSdrGainIndex === SDR_GAIN_AGC ? 42 : this.demoSdrGainIndex;
     const gainScale = Math.pow(10, (manualGain - 42) / 36);
     const dcCancel = (this.demoSdrDspFlags & SDR_DSP_FLAG_DC_CANCEL) !== 0;
@@ -1230,14 +1086,10 @@ export class SerialTransport {
       const sym = Math.floor(n / 16) + this.demoSdrFrameCounter;
       const qpskPhase = (((sym * 3) ^ (sym >> 2)) & 3) * (Math.PI / 2) + Math.PI / 4;
       const fskOmega = 2 * Math.PI * (isSub2210 ? 22 : 14) * t;
-      const carrierAmp = activeForcedHigh !== 0 ? 58 : isSub2210 ? 44 : 40;
+      const carrierAmp = isSub2210 ? 44 : 40;
 
-      const sigI =
-        carrierAmp * Math.cos(fskOmega + qpskPhase) +
-        (activeForcedHigh ? 24 * Math.cos(2 * Math.PI * 37 * t) : 0);
-      const sigQ =
-        carrierAmp * Math.sin(fskOmega + qpskPhase) +
-        (activeForcedHigh ? 24 * Math.sin(2 * Math.PI * 37 * t) : 0);
+      const sigI = carrierAmp * Math.cos(fskOmega + qpskPhase);
+      const sigQ = carrierAmp * Math.sin(fskOmega + qpskPhase);
 
       const noiseI = Math.sin(n * 12.9898 + this.demoSdrFrameCounter) * 7;
       const noiseQ = Math.cos(n * 78.233 - this.demoSdrFrameCounter) * 7;
@@ -1266,40 +1118,11 @@ export class SerialTransport {
     this.emitBytes(encodeResponseFrame(TYPE_SDR_RAW_IQ_FRAME, payload));
   }
 
-  private computeDemoPhysicalLevels(): number {
-    const phase = this.demoTick;
-    let ambient =
-      ((phase & 1) << 0) |
-      (((phase >> 1) & 1) << 1) |
-      (((phase >> 2) & 1) << 2) |
-      ((phase % 5 === 0 ? 1 : 0) << 3);
-
-    ambient = (ambient & ~this.demoPullDownMask) | this.demoPullUpMask;
-    return (
-      (ambient & ~this.demoForceEnable) | (this.demoForcedLevel & this.demoForceEnable)
-    );
-  }
-
-  private emitDemoTelemetry(): void {
-    const payload = new Uint8Array([
-      this.computeDemoPhysicalLevels(),
-      this.demoForceEnable,
-      this.demoForcedLevel,
-      this.demoContentionMask,
-    ]);
-    this.emitBytes(encodeResponseFrame(TYPE_STATUS_TELEMETRY, payload));
-  }
-
   private emitDemoCaps(): void {
     const json = JSON.stringify({
       board: 'XIAO-ESP32-S3',
       firmware: '2.0.0-sdr-demo',
-      channels: 8,
-      maxRateHz: 20_000_000,
-      maxDepth: 32768,
       sdr: true,
-      capFlags: 0x07,
-      pins: CHANNELS.map((c) => ({ ch: c.ch, label: c.label, gpio: c.gpio })),
     });
     this.emitBytes(
       encodeResponseFrame(TYPE_BOARD_CAPABILITIES, new TextEncoder().encode(json)),

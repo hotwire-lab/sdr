@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BottomDrawer, DrawerTab } from './components/BottomDrawer';
 import { RawIqInspector } from './components/RawIqInspector';
 import { SdrControlBar } from './components/SdrControlBar';
@@ -7,7 +7,6 @@ import { TopToolbar } from './components/TopToolbar';
 import { SpectrumTraceState, updateSpectrumTraces } from './dsp/sdrDsp';
 import { ProtocolDemuxer } from './protocol/ProtocolDemuxer';
 import {
-  buildPinForceCmd,
   buildSdrStreamCtrlCmd,
   buildSdrSweepCfgCmd,
   buildSdrTuneCmd,
@@ -16,9 +15,6 @@ import {
 } from './protocol/codec';
 import {
   BoardCapabilitiesFrame,
-  PinForceMode,
-  PinForceState,
-  PinPullMode,
   SDR_DSP_FLAG_DC_CANCEL,
   SDR_DSP_FLAG_MAX_HOLD,
   SDR_GAIN_AGC,
@@ -28,7 +24,6 @@ import {
   SDR_STREAM_STOP,
   SdrRawIqFrame,
   SdrSpectrumFrame,
-  StatusTelemetryFrame,
 } from './protocol/types';
 import { SerialTransport, TransportSnapshot } from './transport/SerialTransport';
 
@@ -53,12 +48,6 @@ export const App: React.FC = () => {
     serialTransport.getSnapshot(),
   );
   const [caps, setCaps] = useState<BoardCapabilitiesFrame | null>(null);
-  const [telemetry, setTelemetry] = useState<StatusTelemetryFrame | null>(null);
-
-  // Pin force state for SDR inline mini-strip
-  const [pinConfigs, setPinConfigs] = useState<Array<{ mode: PinForceMode; pull: PinPullMode }>>(() =>
-    Array.from({ length: 8 }, () => ({ mode: 0, pull: 0 })),
-  );
 
   // SDR state
   const [sdrStreaming, setSdrStreaming] = useState<boolean>(false);
@@ -109,8 +98,6 @@ export const App: React.FC = () => {
       onFrame: (frame) => {
         if (frame.type === 'capabilities') {
           setCaps(frame);
-        } else if (frame.type === 'telemetry') {
-          setTelemetry(frame);
         } else if (frame.type === 'sdrSpectrum') {
           const specFrame: SdrSpectrumFrame = frame;
           const now = performance.now();
@@ -174,42 +161,6 @@ export const App: React.FC = () => {
       serialTransport.destroy();
     };
   }, [serialTransport]);
-
-  const handleForceChannel = useCallback(
-    (ch: number, mode: PinForceMode, pull: PinPullMode) => {
-      setPinConfigs((prev) => {
-        const next = [...prev];
-        next[ch] = { mode, pull };
-        return next;
-      });
-      void serialTransport.writeBytes(buildPinForceCmd(ch, mode, pull, 1));
-    },
-    [serialTransport],
-  );
-
-  const cyclePinForce = useCallback(
-    (ch: number) => {
-      const cur = pinConfigs[ch]?.mode ?? 0;
-      const nextMode: PinForceMode = cur === 0 ? 2 : cur === 2 ? 1 : 0;
-      handleForceChannel(ch, nextMode, 0);
-    },
-    [pinConfigs, handleForceChannel],
-  );
-
-  const handleAllZ = useCallback(() => {
-    setPinConfigs(Array.from({ length: 8 }, () => ({ mode: 0, pull: 0 })));
-    void serialTransport.writeBytes(buildPinForceCmd(0xff, 0, 0, 1));
-  }, [serialTransport]);
-
-  const pinForceStates = useMemo<PinForceState[]>(() => {
-    return pinConfigs.map((cfg) => {
-      if (cfg.mode === 1) return '0';
-      if (cfg.mode === 2) return '1';
-      if (cfg.pull === 1) return 'PU';
-      if (cfg.pull === 2) return 'PD';
-      return 'Z';
-    });
-  }, [pinConfigs]);
 
   const sendSdrTune = useCallback(
     (freqMhz: number, bwCode: number, gain: number) => {
@@ -372,7 +323,6 @@ export const App: React.FC = () => {
         onConnect={() => void serialTransport.connect()}
         onDisconnect={() => void serialTransport.disconnect()}
         onStartDemo={() => void serialTransport.startDemo()}
-        onAllZ={handleAllZ}
         sdrStreaming={sdrStreaming}
         sdrTargetFps={sdrTargetFps}
         onSdrTargetFpsChange={setSdrTargetFps}
@@ -410,10 +360,6 @@ export const App: React.FC = () => {
           loDivActive={sdrLoDivActive}
           captureTruncated={sdrCaptureTruncated}
           onOpenRawIq={handleOpenRawIq}
-          telemetry={telemetry}
-          pinForceStates={pinForceStates}
-          onCyclePinForce={cyclePinForce}
-          onAllZ={handleAllZ}
         />
         <SdrSpectrumWaterfall
           trace={sdrTrace}

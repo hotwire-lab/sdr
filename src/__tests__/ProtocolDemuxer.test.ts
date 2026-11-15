@@ -3,13 +3,13 @@ import { ProtocolDemuxer } from '../protocol/ProtocolDemuxer';
 import { encodeResponseFrame } from '../protocol/codec';
 import {
   DecodedFrame,
+  TYPE_BOARD_CAPABILITIES,
   TYPE_SDR_RAW_IQ_FRAME,
   TYPE_SDR_SPECTRUM_FRAME,
-  TYPE_STATUS_TELEMETRY,
 } from '../protocol/types';
 
 describe('ProtocolDemuxer with SDR Frames', () => {
-  it('separates mixed UTF-8 logs, 0x81 telemetry, 0x84 FFT spectrum, and 0x85 I/Q snapshots', () => {
+  it('separates mixed UTF-8 logs, 0x83 capabilities, 0x84 FFT spectrum, and 0x85 I/Q snapshots', () => {
     const frames: DecodedFrame[] = [];
     const textBytes: number[] = [];
 
@@ -19,9 +19,9 @@ describe('ProtocolDemuxer with SDR Frames', () => {
     });
 
     const banner = new TextEncoder().encode('[SDR] Ready\r\n');
-    const telemetryFrame = encodeResponseFrame(
-      TYPE_STATUS_TELEMETRY,
-      new Uint8Array([0x05, 0x01, 0x01, 0x00]),
+    const capsFrame = encodeResponseFrame(
+      TYPE_BOARD_CAPABILITIES,
+      new TextEncoder().encode('{"board":"XIAO-ESP32-S3","firmware":"2.0.0-sdr","sdr":true}'),
     );
 
     const specPayload = new Uint8Array(8 + 256);
@@ -39,13 +39,13 @@ describe('ProtocolDemuxer with SDR Frames', () => {
     const iqFrame = encodeResponseFrame(TYPE_SDR_RAW_IQ_FRAME, iqPayload);
 
     const combined = new Uint8Array(
-      banner.length + telemetryFrame.length + specFrame.length + iqFrame.length,
+      banner.length + capsFrame.length + specFrame.length + iqFrame.length,
     );
     let off = 0;
     combined.set(banner, off);
     off += banner.length;
-    combined.set(telemetryFrame, off);
-    off += telemetryFrame.length;
+    combined.set(capsFrame, off);
+    off += capsFrame.length;
     combined.set(specFrame, off);
     off += specFrame.length;
     combined.set(iqFrame, off);
@@ -57,7 +57,7 @@ describe('ProtocolDemuxer with SDR Frames', () => {
 
     expect(new TextDecoder().decode(new Uint8Array(textBytes))).toBe('[SDR] Ready\r\n');
     expect(frames.length).toBe(3);
-    expect(frames[0].type).toBe('telemetry');
+    expect(frames[0].type).toBe('capabilities');
     expect(frames[1].type).toBe('sdrSpectrum');
     expect(frames[2].type).toBe('sdrRawIq');
 

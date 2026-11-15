@@ -43,9 +43,9 @@ const QUICK_MACROS = [
   { label: 'sdr stop', cmd: 'sdr stop\r\n' },
   { label: 'tune 2437', cmd: 'tune 2437\r\n' },
   { label: 'tune 1910', cmd: 'tune 1910\r\n' },
-  { label: 'status', cmd: 'status\r\n' },
-  { label: 'release', cmd: 'release\r\n' },
-  { label: 'short 7', cmd: 'short 7\r\n' },
+  { label: 'gain agc', cmd: 'gain agc\r\n' },
+  { label: 'gain 40', cmd: 'gain 40\r\n' },
+  { label: 'stream fft', cmd: 'stream fft\r\n' },
 ];
 
 export interface BottomDrawerProps {
