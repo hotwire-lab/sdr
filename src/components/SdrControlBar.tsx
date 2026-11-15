@@ -18,6 +18,8 @@ export interface SdrControlBarProps {
   onRateBwChange: (code: number) => void;
   fftLog2: number;
   onFftLog2Change: (log2: number) => void;
+  targetFps: number;
+  onTargetFpsChange: (fps: number) => void;
   maxHoldDetector: boolean;
   onMaxHoldDetectorChange: (enabled: boolean) => void;
   subWindows: number;
@@ -46,6 +48,8 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
   onRateBwChange,
   fftLog2,
   onFftLog2Change,
+  targetFps,
+  onTargetFpsChange,
   maxHoldDetector,
   onMaxHoldDetectorChange,
   subWindows,
@@ -66,6 +70,7 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
   onOpenRawIq,
 }) => {
   const [freqDraft, setFreqDraft] = useState(String(centerFreqMhz));
+  const [showDsp, setShowDsp] = useState(false);
 
   useEffect(() => {
     setFreqDraft(String(centerFreqMhz));
@@ -85,40 +90,44 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
     }
   };
 
+  const stepFreq = (delta: number) => {
+    const next = Math.max(
+      SDR_MIN_FREQ_MHZ,
+      Math.min(SDR_MAX_FREQ_MHZ, centerFreqMhz + delta),
+    );
+    onCenterFreqChange(next);
+  };
+
   const isSub2210 = loDivActive || centerFreqMhz < SDR_LO_DIVIDER_THRESHOLD_MHZ;
   const isAgc = gainIndex === SDR_GAIN_AGC;
 
+  // Match active frequency to a band preset if within 1 MHz
+  const matchedPreset = SDR_BAND_PRESETS.find(
+    (p) => Math.abs(p.freqMhz - centerFreqMhz) < 1,
+  );
+
   return (
     <section className="sdr-control-bar" aria-label="RF Tuner and DSP Controls">
-      {/* Row 1: Frequency Tuner + Preset Band Chips */}
-      <div className="sdr-row sdr-tuner-row">
-        <div className="tuner-readout-group">
-          <div className="tuner-step-buttons">
-            <button
-              type="button"
-              className="btn-step"
-              onClick={() => onCenterFreqChange(centerFreqMhz - 10)}
-              disabled={!connected || centerFreqMhz <= SDR_MIN_FREQ_MHZ}
-              title="-10 MHz"
-            >
-              -10
-            </button>
-            <button
-              type="button"
-              className="btn-step"
-              onClick={() => onCenterFreqChange(centerFreqMhz - 1)}
-              disabled={!connected || centerFreqMhz <= SDR_MIN_FREQ_MHZ}
-              title="-1 MHz"
-            >
-              -1
-            </button>
-          </div>
+      {/* Primary Row: Essential Frequency, Span, Gain, and Main Actions */}
+      <div className="sdr-primary-row">
+        {/* Frequency Tuner Cluster */}
+        <div className="tuner-cluster">
+          <button
+            type="button"
+            className="btn-step"
+            onClick={(e) => stepFreq(e.shiftKey ? -10 : -1)}
+            disabled={!connected || centerFreqMhz <= SDR_MIN_FREQ_MHZ}
+            title="Step -1 MHz (Shift: -10 MHz)"
+            aria-label="Step frequency down"
+          >
+            -
+          </button>
 
           <div className="tuner-input-wrap">
             <input
               type="number"
               className="tuner-mhz-input"
-              aria-label="Center Frequency MHz"
+              aria-label="Center Frequency in MHz"
               min={SDR_MIN_FREQ_MHZ}
               max={SDR_MAX_FREQ_MHZ}
               step={1}
@@ -135,192 +144,87 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
             <span className="tuner-unit">MHz</span>
           </div>
 
-          <div className="tuner-step-buttons">
-            <button
-              type="button"
-              className="btn-step"
-              onClick={() => onCenterFreqChange(centerFreqMhz + 1)}
-              disabled={!connected || centerFreqMhz >= SDR_MAX_FREQ_MHZ}
-              title="+1 MHz"
-            >
-              +1
-            </button>
-            <button
-              type="button"
-              className="btn-step"
-              onClick={() => onCenterFreqChange(centerFreqMhz + 10)}
-              disabled={!connected || centerFreqMhz >= SDR_MAX_FREQ_MHZ}
-              title="+10 MHz"
-            >
-              +10
-            </button>
-          </div>
-
-          <div className="tuner-slider-wrap">
-            <input
-              type="range"
-              className="tuner-slider"
-              aria-label="Frequency Slider"
-              min={SDR_MIN_FREQ_MHZ}
-              max={SDR_MAX_FREQ_MHZ}
-              step={1}
-              value={centerFreqMhz}
-              onChange={(e) => onCenterFreqChange(Number(e.target.value))}
-              disabled={!connected}
-            />
-            <div className="tuner-bounds">
-              <span>{SDR_MIN_FREQ_MHZ}</span>
-              <span className="tuner-bound-mid">2210 LO</span>
-              <span>{SDR_MAX_FREQ_MHZ}</span>
-            </div>
-          </div>
-
-          <span
-            className={`lo-badge ${isSub2210 ? 'lo-active' : 'lo-direct'}`}
-            title={
-              isSub2210
-                ? '5/6 LO divider engaged via I2C block 0x63 for 1842–2209 MHz tuning'
-                : 'Direct RFPLL VCO tuning (2210–2790 MHz)'
-            }
+          <button
+            type="button"
+            className="btn-step"
+            onClick={(e) => stepFreq(e.shiftKey ? 10 : 1)}
+            disabled={!connected || centerFreqMhz >= SDR_MAX_FREQ_MHZ}
+            title="Step +1 MHz (Shift: +10 MHz)"
+            aria-label="Step frequency up"
           >
-            {isSub2210 ? '5/6 LO Divider Active' : 'Direct RFPLL'}
-          </span>
+            +
+          </button>
+
+          <input
+            type="range"
+            className="tuner-slider"
+            aria-label="Frequency Range Slider"
+            min={SDR_MIN_FREQ_MHZ}
+            max={SDR_MAX_FREQ_MHZ}
+            step={1}
+            value={centerFreqMhz}
+            onChange={(e) => onCenterFreqChange(Number(e.target.value))}
+            disabled={!connected}
+            title={`${centerFreqMhz} MHz (${isSub2210 ? '5/6 LO' : 'Direct'})`}
+          />
+
+          <select
+            className="band-select"
+            value={matchedPreset ? String(matchedPreset.freqMhz) : ''}
+            onChange={(e) => {
+              if (e.target.value) onCenterFreqChange(Number(e.target.value));
+            }}
+            disabled={!connected}
+            title="Quick-jump to standard RF band"
+            aria-label="RF Band Preset"
+          >
+            <option value="" disabled>
+              {matchedPreset ? matchedPreset.label : 'Select Band...'}
+            </option>
+            {SDR_BAND_PRESETS.map((p) => (
+              <option key={p.freqMhz} value={p.freqMhz}>
+                {p.label} ({p.freqMhz} MHz)
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="band-presets" role="group" aria-label="Band Quick-Jump">
-          {SDR_BAND_PRESETS.map((preset) => {
-            const active = Math.abs(centerFreqMhz - preset.freqMhz) < 1;
-            return (
-              <button
-                key={preset.freqMhz}
-                type="button"
-                className={`band-chip ${active ? 'active' : ''} ${preset.sub2210 ? 'sub2210' : ''}`}
-                onClick={() => onCenterFreqChange(preset.freqMhz)}
-                disabled={!connected}
-                title={preset.label}
-              >
-                {preset.shortLabel}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+        <div className="bar-divider" />
 
-      {/* Row 2: Span, FFT, Detector, DSP & Gain */}
-      <div className="sdr-row sdr-dsp-row">
+        {/* Span / Bandwidth */}
         <div className="control-group">
-          <label htmlFor="sdr-span">Span / Rate</label>
+          <label htmlFor="sdr-span">Span</label>
           <select
             id="sdr-span"
             value={rateBwCode}
             onChange={(e) => onRateBwChange(Number(e.target.value))}
             disabled={!connected}
+            title="RF Capture Bandwidth & Sampling Rate"
           >
             {SDR_SAMPLE_RATE_PRESETS.map((p) => (
               <option key={p.code} value={p.code}>
-                {p.label}
+                {p.spanMhz} MHz
               </option>
             ))}
           </select>
         </div>
 
-        <div className="control-group">
-          <label htmlFor="sdr-fft">FFT Bins</label>
-          <select
-            id="sdr-fft"
-            value={fftLog2}
-            onChange={(e) => onFftLog2Change(Number(e.target.value))}
-            disabled={!connected}
-          >
-            {SDR_FFT_SIZE_PRESETS.map((p) => (
-              <option key={p.log2} value={p.log2}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <div className="bar-divider" />
 
-        <div className="control-group">
-          <label>Detector</label>
-          <div className="segmented-mini">
-            <button
-              type="button"
-              className={!maxHoldDetector ? 'active' : ''}
-              onClick={() => onMaxHoldDetectorChange(false)}
-              disabled={!connected}
-            >
-              Mean Avg
-            </button>
-            <button
-              type="button"
-              className={maxHoldDetector ? 'active' : ''}
-              onClick={() => onMaxHoldDetectorChange(true)}
-              disabled={!connected}
-            >
-              Max-Hold
-            </button>
-          </div>
-          <select
-            aria-label="DSP Sub-windows"
-            value={subWindows}
-            onChange={(e) => onSubWindowsChange(Number(e.target.value))}
-            disabled={!connected}
-            title="Number of sub-captures accumulated per TX frame"
-          >
-            <option value={1}>1x</option>
-            <option value={4}>4x</option>
-            <option value={8}>8x</option>
-          </select>
-        </div>
-
-        <div className="dsp-toggles">
-          <button
-            type="button"
-            className={`toggle-chip ${dcNotch ? 'active' : ''}`}
-            onClick={() => onDcNotchChange(!dcNotch)}
-            title="Cancel LO leakage at center DC bins (firmware DC subtraction + host 3-bin notch)"
-          >
-            DC Spike Notch
-          </button>
-          <button
-            type="button"
-            className={`toggle-chip ${spurBlanker ? 'active' : ''}`}
-            onClick={() => onSpurBlankerChange(!spurBlanker)}
-            title="Suppress single-bin clock/PLL spurs >10 dB above adjacent neighbors"
-          >
-            Spur Blanker
-          </button>
-          <button
-            type="button"
-            className="toggle-chip"
-            onClick={onClearPeakHold}
-            title="Reset host Peak-Hold envelope"
-          >
-            Clear Peak
-          </button>
-          <button
-            type="button"
-            className={`toggle-chip ${sweepEnabled ? 'sweep-active' : ''}`}
-            onClick={onToggleSweep}
-            disabled={!connected}
-            title="Toggle 0x32 automated 40 MHz multi-band wideband stepping (2400–2520 MHz)"
-          >
-            {sweepEnabled ? 'Sweep ON' : 'Wideband Sweep'}
-          </button>
-        </div>
-
+        {/* Gain Cluster */}
         <div className="gain-cluster">
           <button
             type="button"
             className={`toggle-chip ${isAgc ? 'active' : ''}`}
             onClick={() => onGainIndexChange(isAgc ? 42 : SDR_GAIN_AGC)}
             disabled={!connected}
+            title={isAgc ? 'Switch to Manual Gain' : 'Switch to Automatic Gain Control'}
           >
             AGC
           </button>
           <input
             type="range"
-            aria-label="Manual Gain"
+            aria-label="Manual Gain Slider"
             className="gain-slider"
             min={0}
             max={SDR_MAX_MANUAL_GAIN}
@@ -328,35 +232,163 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
             value={isAgc ? activeGainIndex : gainIndex}
             disabled={!connected || isAgc}
             onChange={(e) => onGainIndexChange(Number(e.target.value))}
+            title={isAgc ? `Auto Gain (Step ${activeGainIndex})` : `Manual Gain: ${gainIndex}`}
           />
-          <span className="hw-gain-badge" title="Active Hardware RX Gain Step">
-            HW Gain: {activeGainIndex}
+          <span className="hw-gain-badge">
+            {isAgc ? `Auto (${activeGainIndex})` : `Gain ${gainIndex}`}
           </span>
           {adcClip && (
             <span
               className="clip-alert-badge"
-              title="I/Q samples hit +/-511 ADC rail! Lower manual gain or enable AGC."
+              title="ADC Clipping! Lower manual gain or enable AGC."
             >
-              ADC CLIP
+              CLIP
             </span>
           )}
           {captureTruncated && (
-            <span className="trunc-alert-badge" title="RF Dump SRAM capture sentinel truncated">
+            <span className="trunc-alert-badge" title="Capture truncated">
               TRUNC
             </span>
           )}
         </div>
 
-        <button
-          type="button"
-          className="btn btn-secondary btn-compact"
-          onClick={onOpenRawIq}
-          disabled={!connected}
-          title="Capture raw time-domain I/Q snapshot (0x85) & inspect constellation"
-        >
-          Raw I/Q Inspector
-        </button>
+        <div className="control-spacer" />
+
+        {/* Actions & Advanced Drawer Toggle */}
+        <div className="action-cluster">
+          <button
+            type="button"
+            className={`btn btn-secondary btn-compact ${showDsp ? 'active' : ''}`}
+            onClick={() => setShowDsp((v) => !v)}
+            title="Toggle advanced DSP, FFT resolution and detector settings"
+            aria-expanded={showDsp}
+          >
+            <span>DSP Options</span>
+            <span className="expand-indicator">{showDsp ? '▲' : '▼'}</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-secondary btn-compact"
+            onClick={onOpenRawIq}
+            disabled={!connected}
+            title="Capture raw time-domain I/Q snapshot & inspect constellation"
+          >
+            Raw I/Q
+          </button>
+        </div>
       </div>
+
+      {/* Collapsible Secondary Row: Advanced DSP, FFT, Detector & Sweep */}
+      {showDsp && (
+        <div className="sdr-secondary-row" role="region" aria-label="Advanced DSP Settings">
+          <div className="control-group">
+            <label htmlFor="sdr-fft">FFT</label>
+            <select
+              id="sdr-fft"
+              value={fftLog2}
+              onChange={(e) => onFftLog2Change(Number(e.target.value))}
+              disabled={!connected}
+            >
+              {SDR_FFT_SIZE_PRESETS.map((p) => (
+                <option key={p.log2} value={p.log2}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="control-group">
+            <label htmlFor="sdr-fps">Rate</label>
+            <select
+              id="sdr-fps"
+              value={targetFps}
+              onChange={(e) => onTargetFpsChange(Number(e.target.value))}
+              disabled={!connected}
+            >
+              <option value={10}>10 FPS</option>
+              <option value={20}>20 FPS</option>
+              <option value={30}>30 FPS</option>
+              <option value={60}>60 FPS</option>
+            </select>
+          </div>
+
+          <div className="control-group">
+            <label>Detector</label>
+            <div className="segmented-mini">
+              <button
+                type="button"
+                className={!maxHoldDetector ? 'active' : ''}
+                onClick={() => onMaxHoldDetectorChange(false)}
+                disabled={!connected}
+              >
+                Mean
+              </button>
+              <button
+                type="button"
+                className={maxHoldDetector ? 'active' : ''}
+                onClick={() => onMaxHoldDetectorChange(true)}
+                disabled={!connected}
+              >
+                Peak
+              </button>
+            </div>
+            <select
+              aria-label="DSP Sub-windows"
+              value={subWindows}
+              onChange={(e) => onSubWindowsChange(Number(e.target.value))}
+              disabled={!connected}
+              title="Sub-windows accumulated per frame"
+            >
+              <option value={1}>1x</option>
+              <option value={4}>4x</option>
+              <option value={8}>8x</option>
+            </select>
+          </div>
+
+          <div className="dsp-toggles">
+            <button
+              type="button"
+              className={`toggle-chip ${dcNotch ? 'active' : ''}`}
+              onClick={() => onDcNotchChange(!dcNotch)}
+              title="Cancel LO leakage at DC center bin"
+            >
+              DC Notch
+            </button>
+            <button
+              type="button"
+              className={`toggle-chip ${spurBlanker ? 'active' : ''}`}
+              onClick={() => onSpurBlankerChange(!spurBlanker)}
+              title="Suppress single-bin clock spurs"
+            >
+              Spur Blanker
+            </button>
+            <button
+              type="button"
+              className={`toggle-chip ${sweepEnabled ? 'sweep-active' : ''}`}
+              onClick={onToggleSweep}
+              disabled={!connected}
+              title="Automated 40 MHz multi-band sweep"
+            >
+              {sweepEnabled ? 'Sweep ON' : 'Sweep'}
+            </button>
+            <button
+              type="button"
+              className="toggle-chip"
+              onClick={onClearPeakHold}
+              title="Reset peak-hold envelope"
+            >
+              Reset Peak
+            </button>
+          </div>
+
+          <div className="lo-status-wrap">
+            <span className={`lo-badge ${isSub2210 ? 'lo-active' : 'lo-direct'}`}>
+              {isSub2210 ? '5/6 LO Divider (1842–2209 MHz)' : 'Direct RFPLL (2210–2790 MHz)'}
+            </span>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

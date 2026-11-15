@@ -519,13 +519,15 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             type="button"
             className={`btn-mini ${showBandOverlays ? 'active' : ''}`}
             onClick={() => setShowBandOverlays((v) => !v)}
+            title="Toggle Wi-Fi and BLE band overlay guides"
           >
-            Wi-Fi/BLE Bands
+            Bands
           </button>
           <button
             type="button"
             className={`btn-mini ${m1.active ? 'active' : ''}`}
             onClick={() => setM1((prev) => ({ freqMhz: trace?.centerFreqMhz ?? centerFreqMhz, active: !prev.active }))}
+            title="Toggle Marker 1 (click/drag on spectrum)"
           >
             M1
           </button>
@@ -533,6 +535,7 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             type="button"
             className={`btn-mini ${m2.active ? 'active' : ''}`}
             onClick={() => setM2((prev) => ({ freqMhz: (trace?.centerFreqMhz ?? centerFreqMhz) + 10, active: !prev.active }))}
+            title="Toggle Marker 2 (click/drag on spectrum)"
           >
             M2
           </button>
@@ -561,14 +564,14 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
           />
           {!trace && (
             <div className="sdr-empty-overlay">
-              <p>Connect XIAO ESP32-S3 or click Demo, then press Start RF Stream.</p>
+              <p>Connect XIAO ESP32-S3 or click Demo, then press Start RF.</p>
             </div>
           )}
         </div>
 
         <div className="waterfall-toolbar">
           <div className="wf-group">
-            <label htmlFor="wf-lut">Colormap</label>
+            <label htmlFor="wf-lut">Palette</label>
             <select
               id="wf-lut"
               value={colormap}
@@ -580,7 +583,7 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             </select>
           </div>
           <div className="wf-group">
-            <label htmlFor="wf-min">Min {minDbFs} dBFS</label>
+            <label htmlFor="wf-min">Min {minDbFs} dB</label>
             <input
               id="wf-min"
               type="range"
@@ -592,7 +595,7 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             />
           </div>
           <div className="wf-group">
-            <label htmlFor="wf-max">Max {maxDbFs} dBFS</label>
+            <label htmlFor="wf-max">Max {maxDbFs} dB</label>
             <input
               id="wf-max"
               type="range"
@@ -608,11 +611,17 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
             type="button"
             className={`btn-mini ${waterfallPaused ? 'active' : ''}`}
             onClick={() => setWaterfallPaused((p) => !p)}
+            title={waterfallPaused ? 'Resume waterfall roll' : 'Pause waterfall roll'}
           >
-            {waterfallPaused ? 'Resume WF' : 'Pause WF'}
+            {waterfallPaused ? 'Resume' : 'Pause'}
           </button>
-          <button type="button" className="btn-mini" onClick={clearWaterfall}>
-            Clear WF
+          <button
+            type="button"
+            className="btn-mini"
+            onClick={clearWaterfall}
+            title="Clear waterfall display"
+          >
+            Clear
           </button>
         </div>
 

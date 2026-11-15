@@ -324,8 +324,6 @@ export const App: React.FC = () => {
         onDisconnect={() => void serialTransport.disconnect()}
         onStartDemo={() => void serialTransport.startDemo()}
         sdrStreaming={sdrStreaming}
-        sdrTargetFps={sdrTargetFps}
-        onSdrTargetFpsChange={setSdrTargetFps}
         onToggleSdrStream={handleToggleSdrStream}
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen((o) => !o)}
@@ -340,6 +338,8 @@ export const App: React.FC = () => {
           onRateBwChange={handleRateBwChange}
           fftLog2={sdrFftLog2}
           onFftLog2Change={setSdrFftLog2}
+          targetFps={sdrTargetFps}
+          onTargetFpsChange={setSdrTargetFps}
           maxHoldDetector={sdrMaxHoldDetector}
           onMaxHoldDetectorChange={setSdrMaxHoldDetector}
           subWindows={sdrSubWindows}

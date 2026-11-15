@@ -8,12 +8,8 @@ export interface TopToolbarProps {
   onConnect: () => void;
   onDisconnect: () => void;
   onStartDemo: () => void;
-  // SDR stream controls
   sdrStreaming: boolean;
-  sdrTargetFps: number;
-  onSdrTargetFpsChange: (fps: number) => void;
   onToggleSdrStream: () => void;
-  // Drawer / utility
   drawerOpen: boolean;
   onToggleDrawer: () => void;
 }
@@ -25,8 +21,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
   onDisconnect,
   onStartDemo,
   sdrStreaming,
-  sdrTargetFps,
-  onSdrTargetFpsChange,
   onToggleSdrStream,
   drawerOpen,
   onToggleDrawer,
@@ -36,7 +30,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
 
   return (
     <header className="top-toolbar">
-      <div className="toolbar-row toolbar-row-primary">
+      <div className="toolbar-row">
         <div className="brand-cluster">
           <div className="brand-logo" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="20" height="20">
@@ -51,30 +45,45 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             </svg>
           </div>
           <div className="brand-text">
-            <span className="brand-title">HotWire</span>
-            <span className="brand-badge">SDR 1.8–2.8 GHz</span>
+            <span className="brand-title">HotWire SDR</span>
+            <span className="brand-badge">1.8–2.8 GHz</span>
           </div>
         </div>
 
-        <div className="connection-cluster">
-          <div
-            className={`status-pill status-${transport.status}`}
-            title={transport.errorMessage ?? transport.deviceName}
+        <div
+          className={`status-pill status-${transport.status}`}
+          title={transport.errorMessage ?? transport.deviceName}
+        >
+          <span className="status-dot" />
+          <span className="status-label">
+            {isConnected
+              ? caps?.board
+                ? `${caps.board}${transport.transport === 'demo' ? ' (Demo)' : ''}`
+                : transport.deviceName
+              : isConnecting
+                ? 'Connecting...'
+                : 'Disconnected'}
+          </span>
+          {transport.vidPid && isConnected && (
+            <span className="status-vidpid">{transport.vidPid}</span>
+          )}
+        </div>
+
+        <div className="control-spacer" />
+
+        <div className="action-cluster">
+          <button
+            type="button"
+            className={`btn btn-stream ${sdrStreaming ? 'btn-danger' : 'btn-accent'}`}
+            onClick={onToggleSdrStream}
+            disabled={!isConnected}
+            title={sdrStreaming ? 'Halt live RF streaming' : 'Start live RF spectrum streaming'}
           >
-            <span className="status-dot" />
-            <span className="status-label">
-              {isConnected
-                ? caps?.board
-                  ? `${caps.board}${transport.transport === 'demo' ? ' (Demo)' : ''}`
-                  : transport.deviceName
-                : isConnecting
-                  ? 'Connecting...'
-                  : 'Disconnected'}
+            <span className="btn-icon" aria-hidden="true">
+              {sdrStreaming ? '⏹' : '▶'}
             </span>
-            {transport.vidPid && isConnected && (
-              <span className="status-vidpid">{transport.vidPid}</span>
-            )}
-          </div>
+            <span>{sdrStreaming ? 'Stop RF' : 'Start RF'}</span>
+          </button>
 
           {!isConnected ? (
             <>
@@ -111,7 +120,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
             onClick={onToggleDrawer}
             title="Toggle Serial Terminal & Firmware Web Flasher"
           >
-            Terminal / Flash
+            Console &amp; Flasher
           </button>
         </div>
       </div>
@@ -121,44 +130,6 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <span>{transport.errorMessage}</span>
         </div>
       )}
-
-      <div className="toolbar-row toolbar-row-controls">
-        <div className="sdr-status-summary">
-          <span className="summary-chip">
-            ESP32-S3 Direct RF Dump Engine (0x3FCD0000)
-          </span>
-          <span className="summary-hint">
-            1842–2790 MHz Wideband Spectrum &amp; Waterfall Analyzer
-          </span>
-        </div>
-
-        <div className="control-spacer" />
-
-        <div className="control-group">
-          <label htmlFor="sdr-fps">Rate</label>
-          <select
-            id="sdr-fps"
-            value={sdrTargetFps}
-            onChange={(e) => onSdrTargetFpsChange(Number(e.target.value))}
-          >
-            <option value={10}>10 FPS</option>
-            <option value={20}>20 FPS</option>
-            <option value={30}>30 FPS</option>
-            <option value={60}>60 FPS</option>
-          </select>
-        </div>
-
-        <div className="action-cluster">
-          <button
-            type="button"
-            className={`btn ${sdrStreaming ? 'btn-danger' : 'btn-accent'}`}
-            onClick={onToggleSdrStream}
-            disabled={!isConnected}
-          >
-            {sdrStreaming ? 'Stop RF Stream' : 'Start RF Stream'}
-          </button>
-        </div>
-      </div>
     </header>
   );
 };
