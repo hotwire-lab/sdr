@@ -55,3 +55,13 @@ npm run build
 - Sketch: [`firmware/HotWire_SDR_XIAO_ESP32S3/HotWire_SDR_XIAO_ESP32S3.ino`](firmware/HotWire_SDR_XIAO_ESP32S3/HotWire_SDR_XIAO_ESP32S3.ino)
 - FQBN: `esp32:esp32:XIAO_ESP32S3:USBMode=hwcdc,CDCOnBoot=default,PSRAM=opi`
 - Compiled binaries are bundled in [`public/firmware/`](public/firmware/) for zero-install Web Flasher deployment.
+
+## Credits
+
+- [esptool-js](https://github.com/espressif/esptool-js) (Espressif) — browser-based Web Serial flashing
+- [arduino-esp32](https://github.com/espressif/arduino-esp32) / [ESP-IDF](https://github.com/espressif/esp-idf) (Espressif) — ESP32-S3 firmware foundation
+- [React](https://react.dev/) & [Vite](https://vite.dev/) — web application UI and build tooling
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
