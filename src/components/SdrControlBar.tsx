@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   SDR_BAND_PRESETS,
   SDR_FFT_SIZE_PRESETS,
-  SDR_GAIN_AGC,
   SDR_LO_DIVIDER_THRESHOLD_MHZ,
   SDR_MAX_FREQ_MHZ,
   SDR_MAX_MANUAL_GAIN,
@@ -28,14 +27,11 @@ export interface SdrControlBarProps {
   onDcNotchChange: (enabled: boolean) => void;
   spurBlanker: boolean;
   onSpurBlankerChange: (enabled: boolean) => void;
-  invertSpectrum: boolean;
-  onInvertSpectrumChange: (enabled: boolean) => void;
   onClearPeakHold: () => void;
   sweepEnabled: boolean;
   onToggleSweep: () => void;
   gainIndex: number;
   onGainIndexChange: (gain: number) => void;
-  activeGainIndex: number;
   adcClip: boolean;
   loDivActive: boolean;
   captureTruncated: boolean;
@@ -60,39 +56,17 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
   onDcNotchChange,
   spurBlanker,
   onSpurBlankerChange,
-  invertSpectrum,
-  onInvertSpectrumChange,
   onClearPeakHold,
   sweepEnabled,
   onToggleSweep,
   gainIndex,
   onGainIndexChange,
-  activeGainIndex,
   adcClip,
   loDivActive,
   captureTruncated,
   onOpenRawIq,
 }) => {
-  const [freqDraft, setFreqDraft] = useState(String(centerFreqMhz));
   const [showDsp, setShowDsp] = useState(false);
-
-  useEffect(() => {
-    setFreqDraft(String(centerFreqMhz));
-  }, [centerFreqMhz]);
-
-  const commitFreqDraft = () => {
-    const parsed = Number(freqDraft);
-    if (!Number.isNaN(parsed)) {
-      const clamped = Math.max(
-        SDR_MIN_FREQ_MHZ,
-        Math.min(SDR_MAX_FREQ_MHZ, Math.round(parsed)),
-      );
-      onCenterFreqChange(clamped);
-      setFreqDraft(String(clamped));
-    } else {
-      setFreqDraft(String(centerFreqMhz));
-    }
-  };
 
   const stepFreq = (delta: number) => {
     const next = Math.max(
@@ -103,7 +77,6 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
   };
 
   const isSub2210 = loDivActive || centerFreqMhz < SDR_LO_DIVIDER_THRESHOLD_MHZ;
-  const isAgc = gainIndex === SDR_GAIN_AGC;
 
   // Match active frequency to a band preset if within 1 MHz
   const matchedPreset = SDR_BAND_PRESETS.find(
@@ -112,76 +85,8 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
 
   return (
     <section className="sdr-control-bar" aria-label="RF Tuner and DSP Controls">
-      {/* Primary Row: Essential Stepping, Band Preset, Span, Gain, and Actions */}
+      {/* Primary Row: Span, Manual Gain, Alerts, and Actions */}
       <div className="sdr-primary-row">
-        {/* Frequency Tuner Cluster */}
-        <div className="tuner-cluster">
-          <button
-            type="button"
-            className="btn-step"
-            onClick={(e) => stepFreq(e.shiftKey ? -10 : -1)}
-            disabled={!connected || centerFreqMhz <= SDR_MIN_FREQ_MHZ}
-            title="Step -1 MHz (Shift: -10 MHz)"
-            aria-label="Step frequency down"
-          >
-            -
-          </button>
-
-          <div className="tuner-input-wrap">
-            <input
-              type="number"
-              className="tuner-mhz-input"
-              aria-label="Center Frequency in MHz"
-              min={SDR_MIN_FREQ_MHZ}
-              max={SDR_MAX_FREQ_MHZ}
-              step={1}
-              value={freqDraft}
-              onChange={(e) => setFreqDraft(e.target.value)}
-              onBlur={commitFreqDraft}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  commitFreqDraft();
-                }
-              }}
-              disabled={!connected}
-            />
-            <span className="tuner-unit">MHz</span>
-          </div>
-
-          <button
-            type="button"
-            className="btn-step"
-            onClick={(e) => stepFreq(e.shiftKey ? 10 : 1)}
-            disabled={!connected || centerFreqMhz >= SDR_MAX_FREQ_MHZ}
-            title="Step +1 MHz (Shift: +10 MHz)"
-            aria-label="Step frequency up"
-          >
-            +
-          </button>
-
-          <select
-            className="band-select"
-            value={matchedPreset ? String(matchedPreset.freqMhz) : ''}
-            onChange={(e) => {
-              if (e.target.value) onCenterFreqChange(Number(e.target.value));
-            }}
-            disabled={!connected}
-            title="Quick-jump to standard RF band"
-            aria-label="RF Band Preset"
-          >
-            <option value="" disabled>
-              {matchedPreset ? matchedPreset.label : 'Select Band...'}
-            </option>
-            {SDR_BAND_PRESETS.map((p) => (
-              <option key={p.freqMhz} value={p.freqMhz}>
-                {p.label} ({p.freqMhz} MHz)
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="bar-divider" />
-
         {/* Span / Bandwidth */}
         <div className="control-group">
           <label htmlFor="sdr-span">Span</label>
@@ -202,37 +107,30 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
 
         <div className="bar-divider" />
 
-        {/* Gain Cluster */}
+        {/* Manual Gain Cluster */}
         <div className="gain-cluster">
-          <button
-            type="button"
-            className={`toggle-chip ${isAgc ? 'active' : ''}`}
-            onClick={() => onGainIndexChange(isAgc ? 42 : SDR_GAIN_AGC)}
-            disabled={!connected}
-            title={isAgc ? 'Switch to Manual Gain' : 'Switch to Automatic Gain Control'}
-          >
-            AGC
-          </button>
+          <label htmlFor="sdr-gain" className="gain-label">
+            Gain
+          </label>
           <input
+            id="sdr-gain"
             type="range"
             aria-label="Manual Gain Slider"
             className="gain-slider"
             min={0}
             max={SDR_MAX_MANUAL_GAIN}
             step={1}
-            value={isAgc ? activeGainIndex : gainIndex}
-            disabled={!connected || isAgc}
+            value={Math.min(SDR_MAX_MANUAL_GAIN, Math.max(0, gainIndex))}
+            disabled={!connected}
             onChange={(e) => onGainIndexChange(Number(e.target.value))}
-            title={isAgc ? `Auto Gain (Step ${activeGainIndex})` : `Manual Gain: ${gainIndex}`}
+            title={`Manual Gain: ${gainIndex}`}
           />
-          <span className="hw-gain-badge">
-            {isAgc ? `Auto (${activeGainIndex})` : `Gain ${gainIndex}`}
-          </span>
+          <span className="hw-gain-badge">{gainIndex}</span>
           <div className="alert-slot" aria-live="polite">
             {adcClip && (
               <span
                 className="clip-alert-badge"
-                title="ADC Clipping! Lower manual gain or enable AGC."
+                title="ADC Clipping! Lower manual gain."
               >
                 CLIP
               </span>
@@ -256,7 +154,7 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
             title="Toggle advanced DSP, FFT resolution and detector settings"
             aria-expanded={showDsp}
           >
-            <span>DSP Options</span>
+            <span>DSP</span>
             <span className="expand-indicator">{showDsp ? '▲' : '▼'}</span>
           </button>
 
@@ -272,7 +170,7 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
         </div>
       </div>
 
-      {/* Full-Width Frequency Tuning Bar spanning 100% width directly above spectrum */}
+      {/* Full-Width Frequency Tuning Bar directly above spectrum */}
       <div className="sdr-fullwidth-tuner" aria-label="Full-Width Frequency Tuner">
         <div className="tuner-track-info">
           <div className="tuner-track-left">
@@ -284,37 +182,94 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
               {isSub2210 ? '⚡ 5/6 LO' : 'Direct RF'}
             </span>
             <span className="track-preset-name">
-              {matchedPreset ? matchedPreset.label : (isSub2210 ? 'Sub-2.2 GHz Band' : '2.4 GHz Band')}
+              {matchedPreset ? matchedPreset.label : isSub2210 ? 'Sub-2.2 GHz' : '2.4 GHz'}
             </span>
           </div>
 
-          <div className="tuner-track-right">
-            <span className="track-boundary-val">{SDR_MIN_FREQ_MHZ} MHz</span>
-            <span className="track-arrow">⇄</span>
-            <span className="track-boundary-val">{SDR_MAX_FREQ_MHZ} MHz</span>
+          <div className="tuner-quick-bands" aria-label="Quick Band Jumps">
+            <button
+              type="button"
+              className="band-pill"
+              onClick={() => onCenterFreqChange(1890)}
+              disabled={!connected}
+              title="Jump to DECT EU (1890 MHz)"
+            >
+              DECT
+            </button>
+            <button
+              type="button"
+              className="band-pill"
+              onClick={() => onCenterFreqChange(2350)}
+              disabled={!connected}
+              title="Jump to 13cm Ham (2350 MHz)"
+            >
+              13cm
+            </button>
+            <button
+              type="button"
+              className="band-pill"
+              onClick={() => onCenterFreqChange(2437)}
+              disabled={!connected}
+              title="Jump to Wi-Fi Ch 6 (2437 MHz)"
+            >
+              Wi-Fi
+            </button>
+            <button
+              type="button"
+              className="band-pill"
+              onClick={() => onCenterFreqChange(2655)}
+              disabled={!connected}
+              title="Jump to LTE Band 7 (2655 MHz)"
+            >
+              LTE B7
+            </button>
           </div>
         </div>
 
-        <div className="tuner-slider-wrap">
-          <input
-            type="range"
-            className="fullwidth-tuner-slider"
-            aria-label="Full-width Frequency Tuner Slider"
-            min={SDR_MIN_FREQ_MHZ}
-            max={SDR_MAX_FREQ_MHZ}
-            step={1}
-            value={centerFreqMhz}
-            onChange={(e) => onCenterFreqChange(Number(e.target.value))}
-            disabled={!connected}
-            title={`${centerFreqMhz} MHz (${isSub2210 ? '5/6 LO Divider' : 'Direct Synthesizer'})`}
-          />
-          <div className="tuner-band-ticks" aria-hidden="true">
-            <span className="band-tick" style={{ left: '5.1%' }}>DECT</span>
-            <span className="band-tick band-tick-lo" style={{ left: '38.8%' }}>┆ 2210 LO</span>
-            <span className="band-tick" style={{ left: '53.6%' }}>Ham 13cm</span>
-            <span className="band-tick" style={{ left: '62.8%' }}>Wi-Fi / BLE</span>
-            <span className="band-tick" style={{ left: '85.8%' }}>LTE B7</span>
+        <div className="tuner-slider-row">
+          <button
+            type="button"
+            className="btn-step"
+            onClick={(e) => stepFreq(e.shiftKey ? -10 : -1)}
+            disabled={!connected || centerFreqMhz <= SDR_MIN_FREQ_MHZ}
+            title="Step -1 MHz (Shift: -10 MHz)"
+            aria-label="Step frequency down"
+          >
+            −
+          </button>
+
+          <div className="tuner-slider-wrap">
+            <input
+              type="range"
+              className="fullwidth-tuner-slider"
+              aria-label="Full-width Frequency Tuner Slider"
+              min={SDR_MIN_FREQ_MHZ}
+              max={SDR_MAX_FREQ_MHZ}
+              step={1}
+              value={centerFreqMhz}
+              onChange={(e) => onCenterFreqChange(Number(e.target.value))}
+              disabled={!connected}
+              title={`${centerFreqMhz} MHz (${isSub2210 ? '5/6 LO Divider' : 'Direct Synthesizer'})`}
+            />
+            <div className="tuner-band-ticks" aria-hidden="true">
+              <span className="band-tick" style={{ left: '5.1%' }}>DECT</span>
+              <span className="band-tick band-tick-lo" style={{ left: '38.8%' }}>┆ 2210 LO</span>
+              <span className="band-tick" style={{ left: '53.6%' }}>Ham 13cm</span>
+              <span className="band-tick" style={{ left: '62.8%' }}>Wi-Fi / BLE</span>
+              <span className="band-tick" style={{ left: '85.8%' }}>LTE B7</span>
+            </div>
           </div>
+
+          <button
+            type="button"
+            className="btn-step"
+            onClick={(e) => stepFreq(e.shiftKey ? 10 : 1)}
+            disabled={!connected || centerFreqMhz >= SDR_MAX_FREQ_MHZ}
+            title="Step +1 MHz (Shift: +10 MHz)"
+            aria-label="Step frequency up"
+          >
+            +
+          </button>
         </div>
       </div>
 
@@ -404,14 +359,6 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
             </button>
             <button
               type="button"
-              className={`toggle-chip ${invertSpectrum ? 'active' : ''}`}
-              onClick={() => onInvertSpectrumChange(!invertSpectrum)}
-              title="Invert spectrum / Flip I/Q frequency axis"
-            >
-              Invert IQ
-            </button>
-            <button
-              type="button"
               className={`toggle-chip ${sweepEnabled ? 'sweep-active' : ''}`}
               onClick={onToggleSweep}
               disabled={!connected}
@@ -427,12 +374,6 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
             >
               Reset Peak
             </button>
-          </div>
-
-          <div className="lo-status-wrap">
-            <span className={`lo-badge ${isSub2210 ? 'lo-active' : 'lo-direct'}`}>
-              {isSub2210 ? '5/6 LO Divider (1842–2209 MHz)' : 'Direct RFPLL (2210–2790 MHz)'}
-            </span>
           </div>
         </div>
       )}

@@ -489,12 +489,6 @@ export const SdrSpectrumWaterfall: React.FC<SdrSpectrumWaterfallProps> = ({
       <div className="sdr-hud-bar">
         <div className="hud-metrics">
           <span className="hud-item">
-            <strong>Center:</strong> {(trace?.centerFreqMhz ?? centerFreqMhz).toFixed(1)} MHz
-          </span>
-          <span className="hud-item">
-            <strong>Span:</strong> {trace?.spanMhz ?? spanMhz} MHz
-          </span>
-          <span className="hud-item">
             <strong>RBW:</strong> {rbwKhz.toFixed(1)} kHz
           </span>
           {trace && (

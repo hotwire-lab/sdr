@@ -17,7 +17,6 @@ import {
   BoardCapabilitiesFrame,
   SDR_DSP_FLAG_DC_CANCEL,
   SDR_DSP_FLAG_MAX_HOLD,
-  SDR_GAIN_AGC,
   SDR_STREAM_CONT_IQ,
   SDR_STREAM_FFT,
   SDR_STREAM_SINGLE_IQ,
@@ -58,12 +57,10 @@ export const App: React.FC = () => {
   const [sdrSubWindows, setSdrSubWindows] = useState<number>(4);
   const [sdrDcNotch, setSdrDcNotch] = useState<boolean>(true);
   const [sdrSpurBlanker, setSdrSpurBlanker] = useState<boolean>(false);
-  const [sdrInvertSpectrum, setSdrInvertSpectrum] = useState<boolean>(false);
-  const [sdrGainIndex, setSdrGainIndex] = useState<number>(SDR_GAIN_AGC);
+  const [sdrGainIndex, setSdrGainIndex] = useState<number>(42);
   const [sdrTargetFps, setSdrTargetFps] = useState<number>(20);
   const [sdrSweepEnabled, setSdrSweepEnabled] = useState<boolean>(false);
 
-  const [sdrActiveGain, setSdrActiveGain] = useState<number>(42);
   const [sdrAdcClip, setSdrAdcClip] = useState<boolean>(false);
   const [sdrLoDivActive, setSdrLoDivActive] = useState<boolean>(false);
   const [sdrCaptureTruncated, setSdrCaptureTruncated] = useState<boolean>(false);
@@ -84,12 +81,13 @@ export const App: React.FC = () => {
   const dspOptionsRef = useRef({
     dcNotch: sdrDcNotch,
     spurBlanker: sdrSpurBlanker,
-    invertSpectrum: sdrInvertSpectrum,
     clearNextPeak: false,
   });
   dspOptionsRef.current.dcNotch = sdrDcNotch;
   dspOptionsRef.current.spurBlanker = sdrSpurBlanker;
-  dspOptionsRef.current.invertSpectrum = sdrInvertSpectrum;
+
+  const transportModeRef = useRef(transport.transport);
+  transportModeRef.current = transport.transport;
 
   const lastSdrFrameTsRef = useRef<number>(0);
 
@@ -115,7 +113,6 @@ export const App: React.FC = () => {
           }
           lastSdrFrameTsRef.current = now;
 
-          setSdrActiveGain(specFrame.activeGainIndex);
           setSdrAdcClip(specFrame.adcClip);
           setSdrLoDivActive(specFrame.loDivActive);
           setSdrCaptureTruncated(specFrame.captureTruncated);
@@ -130,7 +127,7 @@ export const App: React.FC = () => {
               {
                 dcNotch: dspOptionsRef.current.dcNotch,
                 spurBlanker: dspOptionsRef.current.spurBlanker,
-                invertSpectrum: dspOptionsRef.current.invertSpectrum,
+                invertSpectrum: transportModeRef.current !== 'demo',
                 clearPeakHold: clearPeak,
               },
             );
@@ -138,7 +135,6 @@ export const App: React.FC = () => {
           setSdrFrameVersion((v) => v + 1);
         } else if (frame.type === 'sdrRawIq') {
           setRawIqFrame(frame);
-          setSdrActiveGain(frame.activeGainIndex);
           setSdrAdcClip(frame.adcClip);
           setSdrLoDivActive(frame.loDivActive);
         }
@@ -218,11 +214,6 @@ export const App: React.FC = () => {
     },
     [sendSdrTune, sdrCenterFreqMhz, sdrRateBwCode],
   );
-
-  const handleInvertSpectrumChange = useCallback((enabled: boolean) => {
-    setSdrInvertSpectrum(enabled);
-    dspOptionsRef.current.clearNextPeak = true;
-  }, []);
 
   const handleToggleSdrStream = useCallback(() => {
     if (sdrStreaming) {
@@ -357,8 +348,6 @@ export const App: React.FC = () => {
           onDcNotchChange={setSdrDcNotch}
           spurBlanker={sdrSpurBlanker}
           onSpurBlankerChange={setSdrSpurBlanker}
-          invertSpectrum={sdrInvertSpectrum}
-          onInvertSpectrumChange={handleInvertSpectrumChange}
           onClearPeakHold={() => {
             dspOptionsRef.current.clearNextPeak = true;
           }}
@@ -366,7 +355,6 @@ export const App: React.FC = () => {
           onToggleSweep={handleToggleSweep}
           gainIndex={sdrGainIndex}
           onGainIndexChange={handleGainIndexChange}
-          activeGainIndex={sdrActiveGain}
           adcClip={sdrAdcClip}
           loDivActive={sdrLoDivActive}
           captureTruncated={sdrCaptureTruncated}
