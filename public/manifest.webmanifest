@@ -1,0 +1,20 @@
+{
+  "name": "HotWire Pocket Lab (Logic Analyzer + 1.8–2.8 GHz SDR)",
+  "short_name": "HotWire SDR",
+  "description": "8-Channel Logic Analyzer, Tri-State Force I/O, and 1.84–2.79 GHz RF Spectrum Analyzer (SDR) PWA for Seeed Studio XIAO ESP32-S3 via Web Serial and WebUSB.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0D1117",
+  "theme_color": "#0D1117",
+  "categories": ["developer", "utilities"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
