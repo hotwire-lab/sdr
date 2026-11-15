@@ -36,6 +36,7 @@ export interface SdrControlBarProps {
   loDivActive: boolean;
   captureTruncated: boolean;
   onOpenRawIq: () => void;
+  onOpenScanner: () => void;
 }
 
 export const SdrControlBar: React.FC<SdrControlBarProps> = ({
@@ -65,6 +66,7 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
   loDivActive,
   captureTruncated,
   onOpenRawIq,
+  onOpenScanner,
 }) => {
   const [showDsp, setShowDsp] = useState(false);
 
@@ -156,6 +158,16 @@ export const SdrControlBar: React.FC<SdrControlBarProps> = ({
           >
             <span>DSP</span>
             <span className="expand-indicator">{showDsp ? '▲' : '▼'}</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-primary btn-compact"
+            onClick={onOpenScanner}
+            disabled={!connected}
+            title="Open 1.84–2.79 GHz Wideband RF Scanner"
+          >
+            Scanner
           </button>
 
           <button

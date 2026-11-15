@@ -4,6 +4,7 @@ import { RawIqInspector } from './components/RawIqInspector';
 import { SdrControlBar } from './components/SdrControlBar';
 import { SdrSpectrumWaterfall } from './components/SdrSpectrumWaterfall';
 import { TopToolbar } from './components/TopToolbar';
+import { WidebandScannerModal } from './components/WidebandScannerModal';
 import { SpectrumTraceState, updateSpectrumTraces } from './dsp/sdrDsp';
 import { ProtocolDemuxer } from './protocol/ProtocolDemuxer';
 import {
@@ -65,8 +66,12 @@ export const App: React.FC = () => {
   const [sdrLoDivActive, setSdrLoDivActive] = useState<boolean>(false);
   const [sdrCaptureTruncated, setSdrCaptureTruncated] = useState<boolean>(false);
   const [sdrTrace, setSdrTrace] = useState<SpectrumTraceState | null>(null);
+  const [latestSdrFrame, setLatestSdrFrame] = useState<SdrSpectrumFrame | null>(null);
   const [sdrFrameVersion, setSdrFrameVersion] = useState<number>(0);
   const [sdrFps, setSdrFps] = useState<number>(0);
+
+  // Wideband Scanner modal state
+  const [scannerOpen, setScannerOpen] = useState<boolean>(false);
 
   // Raw I/Q Inspector state
   const [rawIqOpen, setRawIqOpen] = useState<boolean>(false);
@@ -116,6 +121,7 @@ export const App: React.FC = () => {
           setSdrAdcClip(specFrame.adcClip);
           setSdrLoDivActive(specFrame.loDivActive);
           setSdrCaptureTruncated(specFrame.captureTruncated);
+          setLatestSdrFrame(specFrame);
           setSdrTrace((prev) => {
             const clearPeak = dspOptionsRef.current.clearNextPeak;
             dspOptionsRef.current.clearNextPeak = false;
@@ -278,6 +284,45 @@ export const App: React.FC = () => {
     rawIqKb,
   ]);
 
+  const handleOpenScanner = useCallback(() => {
+    setScannerOpen(true);
+    if (transport.status === 'connected') {
+      if (sdrRateBwCode !== 1) setSdrRateBwCode(1);
+      if (!sdrStreaming || streamingContIq) {
+        setStreamingContIq(false);
+        setSdrStreaming(true);
+        lastSdrFrameTsRef.current = 0;
+        sendSdrStreamCtrl(SDR_STREAM_FFT, sdrFftLog2);
+      }
+    }
+  }, [
+    transport.status,
+    sdrRateBwCode,
+    sdrStreaming,
+    streamingContIq,
+    sendSdrStreamCtrl,
+    sdrFftLog2,
+  ]);
+
+  const handleRequestScanStep = useCallback(
+    (freqMhz: number) => {
+      if (transport.status !== 'connected') return;
+      sendSdrTune(freqMhz, 1, sdrGainIndex);
+    },
+    [transport.status, sendSdrTune, sdrGainIndex],
+  );
+
+  const handleTuneAndInspect = useCallback(
+    (freqMhz: number) => {
+      const clamped = clampSdrFreqMhz(freqMhz);
+      setScannerOpen(false);
+      setSdrCenterFreqMhz(clamped);
+      dspOptionsRef.current.clearNextPeak = true;
+      sendSdrTune(clamped, sdrRateBwCode, sdrGainIndex);
+    },
+    [sendSdrTune, sdrRateBwCode, sdrGainIndex],
+  );
+
   const handleRequestSingleIq = useCallback(() => {
     setStreamingContIq(false);
     setSdrStreaming(false);
@@ -359,6 +404,7 @@ export const App: React.FC = () => {
           loDivActive={sdrLoDivActive}
           captureTruncated={sdrCaptureTruncated}
           onOpenRawIq={handleOpenRawIq}
+          onOpenScanner={handleOpenScanner}
         />
         <SdrSpectrumWaterfall
           trace={sdrTrace}
@@ -386,6 +432,22 @@ export const App: React.FC = () => {
         streamingContIq={streamingContIq}
         onRequestSingleShot={handleRequestSingleIq}
         onToggleContIq={handleToggleContIq}
+      />
+
+      <WidebandScannerModal
+        open={scannerOpen}
+        onClose={() => {
+          setScannerOpen(false);
+          if (transport.status === 'connected') {
+            sendSdrTune(sdrCenterFreqMhz, sdrRateBwCode, sdrGainIndex);
+          }
+        }}
+        connected={transport.status === 'connected'}
+        latestFrame={latestSdrFrame}
+        frameVersion={sdrFrameVersion}
+        invertSpectrum={transport.transport !== 'demo'}
+        onRequestScanStep={handleRequestScanStep}
+        onTuneAndInspect={handleTuneAndInspect}
       />
 
       <BottomDrawer
