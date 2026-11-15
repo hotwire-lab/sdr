@@ -72,4 +72,5 @@ npm run build
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE).
+- **Web Application** (`src/`, `index.html`, and frontend assets): Licensed under the [Apache License 2.0](LICENSE).
+- **ESP32-S3 / ESP32-C6 Firmware & Bundled Binaries** (`firmware/` and `public/firmware/`): Licensed under the [GNU General Public License v3.0 or later (`GPL-3.0-or-later`)](firmware/LICENSE), incorporating hardware RF dump and LO divider implementations derived from [ESPARGOS/esp-sdr](https://github.com/ESPARGOS/esp-sdr).

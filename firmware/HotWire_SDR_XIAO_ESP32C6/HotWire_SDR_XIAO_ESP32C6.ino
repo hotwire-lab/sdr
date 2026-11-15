@@ -1,4 +1,6 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
  * HotWire SDR - Dedicated 1.84–2.79 GHz RF Spectrum Analyzer Firmware for Seeed Studio XIAO ESP32-C6
  *
  * Based on ESPARGOS/esp-sdr ESP32-C6 RF Dump & LO Divider research:
