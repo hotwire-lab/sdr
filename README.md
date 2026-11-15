@@ -58,6 +58,7 @@ npm run build
 
 ## Credits
 
+- [esp-sdr](https://github.com/ESPARGOS/esp-sdr) (ESPARGOS / Florian Euchner) — foundational ESP32-S3 raw RF dump & LO divider research
 - [esptool-js](https://github.com/espressif/esptool-js) (Espressif) — browser-based Web Serial flashing
 - [arduino-esp32](https://github.com/espressif/arduino-esp32) / [ESP-IDF](https://github.com/espressif/esp-idf) (Espressif) — ESP32-S3 firmware foundation
 - [React](https://react.dev/) & [Vite](https://vite.dev/) — web application UI and build tooling
