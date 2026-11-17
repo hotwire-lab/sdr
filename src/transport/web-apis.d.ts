@@ -129,6 +129,7 @@ export interface WebUSBDevice {
   ): Promise<WebUSBOutTransferResult>;
   transferIn(endpointNumber: number, length: number): Promise<WebUSBInTransferResult>;
   transferOut(endpointNumber: number, data: BufferSource): Promise<WebUSBOutTransferResult>;
+  clearHalt?(direction: 'in' | 'out', endpointNumber: number): Promise<void>;
 }
 
 export interface WebUSBDeviceFilter {

@@ -2,7 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ESPLoader, FlashOptions, LoaderOptions, Transport } from 'esptool-js';
 import { buildBootloaderCmd } from '../protocol/codec';
 import { BoardCapabilitiesFrame } from '../protocol/types';
-import { SerialTransport, TransportSnapshot } from '../transport/SerialTransport';
+import {
+  detectPreferredBackend,
+  SerialTransport,
+  TransportSnapshot,
+  WEBUSB_FILTERS,
+} from '../transport/SerialTransport';
+import { WebSerialPort, WebUSBDevice } from '../transport/web-apis';
+import { WebUsbCdcSerialPort } from '../transport/WebUsbSerialPort';
 
 type BoardId = 'esp32s3' | 'esp32c6';
 
@@ -119,8 +126,8 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
 
   const handleFlash = async (forceOtherPort = false) => {
     if (flashing) return;
-    if (typeof navigator === 'undefined' || !navigator.serial) {
-      setFlashError('Web Serial API is required for browser firmware flashing.');
+    if (typeof navigator === 'undefined' || (!navigator.serial && !navigator.usb)) {
+      setFlashError('Web Serial or WebUSB API is required for browser firmware flashing.');
       return;
     }
 
@@ -130,26 +137,53 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
     setFlashLogs([]);
     serialTransport.setAutoReconnectPaused(true);
 
-    let port = forceOtherPort ? null : serialTransport.getActiveWebSerialPort();
+    const preferredBackend = detectPreferredBackend();
+    const useWebUsb =
+      transportSnapshot.transport === 'webusb' ||
+      (transportSnapshot.transport !== 'webserial' && preferredBackend === 'webusb');
+
+    let port: WebSerialPort | null = null;
+    let webUsbDevice: WebUSBDevice | null = null;
 
     try {
       appendLog(`[1/4] Preparing to flash ${boardProfile.label}...`);
-      if (!forceOtherPort && transportSnapshot.transport === 'webserial' && port) {
-        appendLog('Sending 0xF0 bootloader entry command & closing app transport...');
-        try {
-          await serialTransport.writeBytes(buildBootloaderCmd());
-        } catch {
-          // Ignore if port closes quickly
+      if (useWebUsb && navigator.usb) {
+        const activeUsb = forceOtherPort ? null : serialTransport.getActiveWebUsbDevice();
+        if (!forceOtherPort && transportSnapshot.transport === 'webusb' && activeUsb) {
+          appendLog('Sending 0xF0 bootloader entry command & closing WebUSB app transport...');
+          try {
+            await serialTransport.writeBytes(buildBootloaderCmd());
+          } catch {
+            // Ignore if port closes quickly
+          }
+          await new Promise((r) => setTimeout(r, 250));
+          await serialTransport.disconnect(true);
+          webUsbDevice = activeUsb;
+        } else {
+          appendLog('Select the XIAO ESP32 USB-JTAG / CDC device in the browser WebUSB prompt...');
+          webUsbDevice = await navigator.usb.requestDevice({ filters: WEBUSB_FILTERS });
         }
-        await new Promise((r) => setTimeout(r, 250));
-        await serialTransport.disconnect(true);
-      } else {
-        appendLog('Select the XIAO ESP32 USB-JTAG / CDC COM port in the browser prompt...');
-        port = await navigator.serial.requestPort();
+        port = new WebUsbCdcSerialPort(webUsbDevice);
+      } else if (navigator.serial) {
+        let serialPort = forceOtherPort ? null : serialTransport.getActiveWebSerialPort();
+        if (!forceOtherPort && transportSnapshot.transport === 'webserial' && serialPort) {
+          appendLog('Sending 0xF0 bootloader entry command & closing app transport...');
+          try {
+            await serialTransport.writeBytes(buildBootloaderCmd());
+          } catch {
+            // Ignore if port closes quickly
+          }
+          await new Promise((r) => setTimeout(r, 250));
+          await serialTransport.disconnect(true);
+        } else {
+          appendLog('Select the XIAO ESP32 USB-JTAG / CDC COM port in the browser prompt...');
+          serialPort = await navigator.serial.requestPort();
+        }
+        port = serialPort;
       }
 
       if (!port) {
-        throw new Error('No serial port selected.');
+        throw new Error('No serial or USB port selected.');
       }
 
       const fileArray: Array<{ data: Uint8Array; address: number }> = [];
@@ -306,12 +340,25 @@ export const BottomDrawer: React.FC<BottomDrawerProps> = ({
       appendLog('Flash complete! Reconnecting to HotWire...');
       await new Promise((r) => setTimeout(r, 1200));
       serialTransport.setAutoReconnectPaused(false);
-      try {
-        await serialTransport.connectWebSerialPort(port);
-      } catch {
-        // Windows USB-Serial/JTAG may still be re-enumerating after watchdog reset
-        await new Promise((r) => setTimeout(r, 900));
-        await serialTransport.connectWebSerialPort(port);
+      if (webUsbDevice) {
+        try {
+          await serialTransport.connectWebUsbDevice(webUsbDevice);
+        } catch {
+          await new Promise((r) => setTimeout(r, 900));
+          try {
+            await serialTransport.connectWebUsbDevice(webUsbDevice);
+          } catch {
+            await serialTransport.probeAuthorizedDevices();
+          }
+        }
+      } else {
+        try {
+          await serialTransport.connectWebSerialPort(port);
+        } catch {
+          // Windows USB-Serial/JTAG may still be re-enumerating after watchdog reset
+          await new Promise((r) => setTimeout(r, 900));
+          await serialTransport.connectWebSerialPort(port);
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
