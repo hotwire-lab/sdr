@@ -74,9 +74,9 @@ pub fn RawIqInspector(
 
                         // I(t)
                         ctx.begin_path();
-                        for i in 0..count {
+                        for (i, &sample) in f.i_samples.iter().enumerate().take(count) {
                             let x = (i as f64 / denom) * w;
-                            let y = mid_y - (f.i_samples[i] as f64) * amp_scale;
+                            let y = mid_y - (sample as f64) * amp_scale;
                             if i == 0 {
                                 ctx.move_to(x, y);
                             } else {
@@ -89,9 +89,9 @@ pub fn RawIqInspector(
 
                         // Q(t)
                         ctx.begin_path();
-                        for i in 0..count {
+                        for (i, &sample) in f.q_samples.iter().enumerate().take(count) {
                             let x = (i as f64 / denom) * w;
-                            let y = mid_y - (f.q_samples[i] as f64) * amp_scale;
+                            let y = mid_y - (sample as f64) * amp_scale;
                             if i == 0 {
                                 ctx.move_to(x, y);
                             } else {

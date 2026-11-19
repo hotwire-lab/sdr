@@ -18,6 +18,7 @@ pub fn SdrControlBar(
     sub_windows: RwSignal<u8>,
     dc_notch: RwSignal<bool>,
     spur_blanker: RwSignal<bool>,
+    peak_decay_db_per_sec: RwSignal<f32>,
     on_clear_peak_hold: Callback<()>,
     sweep_enabled: RwSignal<bool>,
     on_toggle_sweep: Callback<()>,
@@ -367,6 +368,26 @@ pub fn SdrControlBar(
                             <option value="1">"1x"</option>
                             <option value="4">"4x"</option>
                             <option value="8">"8x"</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="sdr-peak-decay">"Peak Decay"</label>
+                        <select
+                            id="sdr-peak-decay"
+                            prop:value=move || (peak_decay_db_per_sec.get() as i32).to_string()
+                            on:change=move |ev| {
+                                if let Ok(v) = event_target_value(&ev).parse::<f32>() {
+                                    peak_decay_db_per_sec.set(v);
+                                }
+                            }
+                            title="Peak-hold envelope decay speed (dB/s)"
+                        >
+                            <option value="0">"Hold (∞)"</option>
+                            <option value="2">"2 dB/s"</option>
+                            <option value="5">"5 dB/s"</option>
+                            <option value="10">"10 dB/s"</option>
+                            <option value="20">"20 dB/s"</option>
                         </select>
                     </div>
 

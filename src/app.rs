@@ -44,6 +44,7 @@ pub fn App() -> impl IntoView {
     let sdr_sub_windows = RwSignal::new(4u8);
     let sdr_dc_notch = RwSignal::new(true);
     let sdr_spur_blanker = RwSignal::new(false);
+    let sdr_peak_decay_db_per_sec = RwSignal::new(5.0f32);
     let sdr_gain_index = RwSignal::new(42u8);
     let sdr_target_fps = RwSignal::new(20u8);
     let sdr_sweep_enabled = RwSignal::new(false);
@@ -90,9 +91,11 @@ pub fn App() -> impl IntoView {
                             DecodedFrame::SdrSpectrum(spec) => {
                                 let now = perf_now();
                                 let prev_ts = last_frame_ts.get_value();
+                                let mut dt_sec = 0.0f32;
                                 if prev_ts > 0.0 {
                                     let dt = now - prev_ts;
                                     if dt > 1.0 {
+                                        dt_sec = (dt / 1000.0).clamp(0.0, 1.0) as f32;
                                         let inst_fps = 1000.0 / dt;
                                         sdr_fps.update(|prev| {
                                             *prev = if *prev == 0.0 {
@@ -120,6 +123,8 @@ pub fn App() -> impl IntoView {
                                     spur_blanker: sdr_spur_blanker.get_untracked(),
                                     invert_spectrum: invert,
                                     clear_peak_hold: clear_peak,
+                                    peak_decay_db_per_sec: sdr_peak_decay_db_per_sec.get_untracked(),
+                                    dt_sec,
                                     ..Default::default()
                                 };
 
@@ -391,6 +396,7 @@ pub fn App() -> impl IntoView {
                     sub_windows=sdr_sub_windows
                     dc_notch=sdr_dc_notch
                     spur_blanker=sdr_spur_blanker
+                    peak_decay_db_per_sec=sdr_peak_decay_db_per_sec
                     on_clear_peak_hold=on_clear_peak_hold
                     sweep_enabled=sdr_sweep_enabled
                     on_toggle_sweep=on_toggle_sweep

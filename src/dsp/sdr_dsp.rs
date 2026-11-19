@@ -53,6 +53,8 @@ pub struct DspProcessOptions {
     pub spur_threshold_db: f32,
     pub avg_alpha: f32,
     pub clear_peak_hold: bool,
+    pub peak_decay_db_per_sec: f32,
+    pub dt_sec: f32,
 }
 
 impl Default for DspProcessOptions {
@@ -64,6 +66,8 @@ impl Default for DspProcessOptions {
             spur_threshold_db: 10.0,
             avg_alpha: 0.28,
             clear_peak_hold: false,
+            peak_decay_db_per_sec: 5.0,
+            dt_sec: 0.0,
         }
     }
 }
@@ -270,10 +274,12 @@ pub fn update_spectrum_traces(
         let prev = prev_state.unwrap();
         let mut avg = Vec::with_capacity(fft_bins);
         let mut peak = Vec::with_capacity(fft_bins);
+        let decay_step = options.peak_decay_db_per_sec.max(0.0) * options.dt_sec.clamp(0.0, 1.0);
         for i in 0..fft_bins {
             let val = processed[i];
             avg.push(prev.avg_dbfs[i] * (1.0 - avg_alpha) + val * avg_alpha);
-            peak.push(prev.peak_hold_dbfs[i].max(val));
+            let decayed = prev.peak_hold_dbfs[i] - decay_step;
+            peak.push(decayed.max(val));
         }
         (avg, peak)
     };
@@ -347,6 +353,35 @@ mod tests {
             ..opts
         };
         let s3 = update_spectrum_traces(&frame2, 2437.0, 80.0, Some(&s2), clear_opts);
+        assert_eq!(s3.peak_hold_dbfs[10], -95.0);
+    }
+
+    #[test]
+    fn decays_peak_hold_smoothly_over_time() {
+        let mut frame1 = vec![-95.0f32; 32];
+        frame1[10] = -30.0;
+        let opts = DspProcessOptions {
+            dc_notch: false,
+            spur_blanker: false,
+            peak_decay_db_per_sec: 10.0,
+            dt_sec: 0.5,
+            ..Default::default()
+        };
+        let s1 = update_spectrum_traces(&frame1, 2437.0, 80.0, None, opts);
+        assert_eq!(s1.peak_hold_dbfs[10], -30.0);
+
+        let frame2 = vec![-95.0f32; 32];
+        let s2 = update_spectrum_traces(&frame2, 2437.0, 80.0, Some(&s1), opts);
+        // 10 dB/s * 0.5 s = 5 dB decay
+        assert!((s2.peak_hold_dbfs[10] - (-35.0)).abs() < 1e-4);
+
+        // Decays down to live floor and never below it
+        let fast_decay = DspProcessOptions {
+            peak_decay_db_per_sec: 200.0,
+            dt_sec: 1.0,
+            ..opts
+        };
+        let s3 = update_spectrum_traces(&frame2, 2437.0, 80.0, Some(&s2), fast_decay);
         assert_eq!(s3.peak_hold_dbfs[10], -95.0);
     }
 

@@ -80,16 +80,16 @@ fn init_command_bytes() -> Vec<u8> {
 
 type StateCallback = Rc<RefCell<Option<Box<dyn FnMut(TransportSnapshot)>>>>;
 type BytesCallback = Rc<RefCell<Option<Box<dyn FnMut(&[u8])>>>>;
+type DemoClosureSlot = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
 
 #[derive(Clone)]
 pub struct SerialTransport {
     snapshot: Rc<RefCell<TransportSnapshot>>,
     demo: Rc<RefCell<DemoSimulator>>,
     demo_timer_id: Rc<RefCell<Option<i32>>>,
-    demo_closure: Rc<RefCell<Option<Closure<dyn FnMut()>>>>,
+    demo_closure: DemoClosureSlot,
     on_state: StateCallback,
     on_bytes: BytesCallback,
-    _js_closures: Rc<RefCell<Vec<Closure<dyn FnMut(JsValue)>>>>,
 }
 
 impl Default for SerialTransport {
@@ -107,7 +107,6 @@ impl SerialTransport {
             demo_closure: Rc::new(RefCell::new(None)),
             on_state: Rc::new(RefCell::new(None)),
             on_bytes: Rc::new(RefCell::new(None)),
-            _js_closures: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
