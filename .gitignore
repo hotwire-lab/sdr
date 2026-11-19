@@ -1,12 +1,9 @@
-node_modules/
+target/
 dist/
-coverage/
 firmware/*/build/
 firmware/build/
 firmware/**/build/
 .env
 .env*.local
-*.tsbuildinfo
 .DS_Store
-npm-debug.log*
-yarn-error.log*
+*.swp

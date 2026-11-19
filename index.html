@@ -17,7 +17,7 @@
     />
     <meta
       name="keywords"
-      content="ESP32-S3 SDR, ESP32-C6 SDR, XIAO ESP32-S3 spectrum analyzer, XIAO ESP32-C6 spectrum analyzer, 2.4 GHz RF analyzer, DECT spectrum, Web Serial SDR, WebUSB spectrum analyzer, waterfall display, esptool-js flasher, HotWire SDR"
+      content="ESP32-S3 SDR, ESP32-C6 SDR, XIAO ESP32-S3 spectrum analyzer, XIAO ESP32-C6 spectrum analyzer, 2.4 GHz RF analyzer, DECT spectrum, Web Serial SDR, WebUSB spectrum analyzer, waterfall display, esptool-js flasher, HotWire SDR, Rust WebAssembly"
     />
     <meta name="author" content="Kari Vierimaa, Kempele" />
     <link rel="canonical" href="https://kavierim.github.io/HotWire-SDR/" />
@@ -37,7 +37,7 @@
     <meta name="twitter:title" content="HotWire SDR — 1.84–2.79 GHz RF Spectrum Analyzer (XIAO ESP32-S3 / C6)" />
     <meta
       name="twitter:description"
-      content="Turn a $5 XIAO ESP32-S3 or ESP32-C6 into a 1.84–2.79 GHz RF Spectrum Analyzer &amp; Wideband Scanner in your browser. Zero-install PWA + built-in Web Flasher."
+      content="Turn a $5 XIAO ESP32-S3 or ESP32-C6 into a 1.84–2.79 GHz RF Spectrum Analyzer &amp; Wideband Scanner in your browser. Zero-install Rust/WASM PWA + built-in Web Flasher."
     />
     <meta name="twitter:image" content="https://kavierim.github.io/HotWire-SDR/og-preview.jpg" />
 
@@ -65,9 +65,25 @@
 
     <link rel="icon" type="image/svg+xml" href="./icon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
+
+    <link data-trunk rel="css" href="styles.css" />
+    <link data-trunk rel="copy-dir" href="public/firmware" />
+    <link data-trunk rel="copy-file" href="public/icon.svg" />
+    <link data-trunk rel="copy-file" href="public/manifest.webmanifest" />
+    <link data-trunk rel="copy-file" href="public/og-preview.jpg" />
+    <link data-trunk rel="copy-file" href="public/robots.txt" />
+    <link data-trunk rel="copy-file" href="public/sitemap.xml" />
+    <link data-trunk rel="copy-file" href="public/sw.js" />
+    <link data-trunk rel="copy-file" href="public/.nojekyll" />
+    <link data-trunk rel="rust" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

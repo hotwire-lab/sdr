@@ -49,12 +49,14 @@ Turn a **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** into a real-time **1.
 
 ## Development & Firmware
 
+Built with **Rust + WebAssembly** ([Leptos](https://leptos.dev/) CSR + [Trunk](https://trunkrs.dev/)).
+
 ```bash
-npm install
-npm run typecheck
-npm run lint
-npm test
-npm run build
+rustup target add wasm32-unknown-unknown
+cargo clippy --all-targets -- -D warnings
+cargo test
+trunk serve          # local dev server (http://127.0.0.1:8080)
+trunk build --release
 ```
 
 - **XIAO ESP32-S3 Sketch:** [`firmware/HotWire_SDR_XIAO_ESP32S3/HotWire_SDR_XIAO_ESP32S3.ino`](firmware/HotWire_SDR_XIAO_ESP32S3/HotWire_SDR_XIAO_ESP32S3.ino)
@@ -68,7 +70,7 @@ npm run build
 - [esp-sdr](https://github.com/ESPARGOS/esp-sdr) (ESPARGOS / Florian Euchner) — foundational ESP32-S3 / ESP32-C6 raw RF dump & LO divider research
 - [esptool-js](https://github.com/espressif/esptool-js) (Espressif) — browser-based Web Serial flashing
 - [arduino-esp32](https://github.com/espressif/arduino-esp32) / [ESP-IDF](https://github.com/espressif/esp-idf) (Espressif) — ESP32 firmware foundation
-- [React](https://react.dev/) & [Vite](https://vite.dev/) — web application UI and build tooling
+- [Leptos](https://leptos.dev/) & [Trunk](https://trunkrs.dev/) — Rust/WebAssembly web application UI and build tooling
 
 ## License
 
