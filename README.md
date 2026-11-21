@@ -1,21 +1,21 @@
 # HotWire SDR — 1.84–2.79 GHz RF Spectrum Analyzer
 
-[![Deploy to GitHub Pages](https://github.com/kavierim/HotWire-SDR/actions/workflows/deploy.yml/badge.svg)](https://github.com/kavierim/HotWire-SDR/actions/workflows/deploy.yml)
-[![Live Web App](https://img.shields.io/badge/Live_Web_App-GitHub_Pages-0ea5e9?logo=googlechrome&logoColor=white)](https://kavierim.github.io/HotWire-SDR/)
+[![Deploy to GitHub Pages](https://github.com/hotwire-lab/sdr/actions/workflows/deploy.yml/badge.svg)](https://github.com/hotwire-lab/sdr/actions/workflows/deploy.yml)
+[![Live Web App](https://img.shields.io/badge/Live_Web_App-GitHub_Pages-0ea5e9?logo=googlechrome&logoColor=white)](https://hotwire-lab.github.io/sdr/)
 [![Hardware](https://img.shields.io/badge/Hardware-XIAO_ESP32--S3_%2F_C6-10b981)](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html)
 [![Web Serial & WebUSB](https://img.shields.io/badge/USB-Web_Serial_%2F_WebUSB-8b5cf6)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API)
 [![Rust + WASM](https://img.shields.io/badge/Stack-Rust_%2B_Leptos_WASM-f97316?logo=rust&logoColor=white)](https://leptos.dev/)
 
 Turn a **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** into a real-time **1.84–2.79 GHz RF Spectrum Analyzer**, **Wideband Scanner**, **scrolling Waterfall**, and **Raw Baseband I/Q Receiver** directly in your browser — **zero drivers, zero desktop install**.
 
-> **Try it in 1 click (no hardware required):** Open **[https://kavierim.github.io/HotWire-SDR/](https://kavierim.github.io/HotWire-SDR/)** and click **Demo** → **Start RF** (or **Scanner**) to explore the live RF simulator.
+> **Try it in 1 click (no hardware required):** Open **[https://hotwire-lab.github.io/sdr/](https://hotwire-lab.github.io/sdr/)** and click **Demo** → **Start RF** (or **Scanner**) to explore the live RF simulator.
 
 ![HotWire SDR live spectrum and waterfall at 1884 MHz (DECT EU, 40 MHz span, 5/6 LO divider)](docs/sdr-dect-example.jpg)
 
 ## Quick Start (XIAO ESP32-S3 / XIAO ESP32-C6)
 
 1. Plug your **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** (with external U.FL antenna connected) into USB.
-2. Open **[https://kavierim.github.io/HotWire-SDR/](https://kavierim.github.io/HotWire-SDR/)** in **Chrome**, **Edge**, or **Opera** (Desktop or Android).
+2. Open **[https://hotwire-lab.github.io/sdr/](https://hotwire-lab.github.io/sdr/)** in **Chrome**, **Edge**, or **Opera** (Desktop or Android).
 3. Click **⚡ Flasher** (top right), choose your board (`XIAO ESP32-S3 (8MB)` or `XIAO ESP32-C6 (4MB)`), and click **Flash Firmware** to program the bundled SDR firmware (`v2.0.0+`) directly from your browser via **`esptool-js`**.
    * If a board running another HotWire firmware (e.g., Oscilloscope or Logic Analyzer) or an outdated version is connected, the app automatically disconnects and shows a one-click **Flash Firmware** prompt.
 4. Click **Start RF** — or open **Scanner** to sweep the entire **1.84–2.79 GHz** band at once.
@@ -47,11 +47,11 @@ Turn a **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** into a real-time **1.
 
 ## HotWire Ecosystem
 
-- **[`hotwire-core`](https://github.com/kavierim/hotwire-core)** — Shared Rust/WASM hardware transport, framing, firmware verification, Web Flasher & UI shell
-- **[HotWire SDR](https://github.com/kavierim/HotWire-SDR)** ([Live App](https://kavierim.github.io/HotWire-SDR/)) — 1.84–2.79 GHz RF Spectrum Analyzer, Wideband Scanner & Waterfall for XIAO ESP32-S3 & XIAO ESP32-C6
-- **[HotWire Oscilloscope](https://github.com/kavierim/HotWire-Oscilloscope)** ([Live App](https://kavierim.github.io/HotWire-Oscilloscope/)) — 4-Channel 12-bit GDMA ADC Oscilloscope & FFT Spectrum Analyzer
-- **[HotWire Logic Analyzer](https://github.com/kavierim/HotWire-Logic-Analyzer)** ([Live App](https://kavierim.github.io/HotWire-Logic-Analyzer/)) — 8-Channel Logic Analyzer & Tri-State Force I/O with UART/SPI/I²C decoders
-- **[HotWire Serial Terminal](https://github.com/kavierim/HotWire-Serial-Terminal)** ([Live App](https://kavierim.github.io/HotWire-Serial-Terminal/)) — Cross-platform Web Serial & WebUSB terminal for desktop and Android
+- **[`hotwire-core`](https://github.com/hotwire-lab/hotwire-core)** — Shared Rust/WASM hardware transport, framing, firmware verification, Web Flasher & UI shell
+- **[HotWire SDR](https://github.com/hotwire-lab/sdr)** ([Live App](https://hotwire-lab.github.io/sdr/)) — 1.84–2.79 GHz RF Spectrum Analyzer, Wideband Scanner & Waterfall for XIAO ESP32-S3 & XIAO ESP32-C6
+- **[HotWire Oscilloscope](https://github.com/hotwire-lab/scope)** ([Live App](https://hotwire-lab.github.io/scope/)) — 4-Channel 12-bit GDMA ADC Oscilloscope & FFT Spectrum Analyzer
+- **[HotWire Logic Analyzer](https://github.com/hotwire-lab/logic)** ([Live App](https://hotwire-lab.github.io/logic/)) — 8-Channel Logic Analyzer & Tri-State Force I/O with UART/SPI/I²C decoders
+- **[HotWire Serial Terminal](https://github.com/hotwire-lab/serial)** ([Live App](https://hotwire-lab.github.io/serial/)) — Cross-platform Web Serial & WebUSB terminal for desktop and Android
 
 ## Development & Firmware
 

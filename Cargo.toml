@@ -6,7 +6,7 @@ description = "HotWire SDR — 1.84-2.79 GHz RF Spectrum Analyzer, Wideband Scan
 license = "Apache-2.0"
 
 [dependencies]
-hotwire-core = { git = "https://github.com/kavierim/hotwire-core", tag = "v0.2.1" }
+hotwire-core = { git = "https://github.com/hotwire-lab/hotwire-core", tag = "v0.3.0" }
 leptos = { version = "0.7", features = ["csr"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"

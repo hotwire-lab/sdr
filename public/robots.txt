@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://kavierim.github.io/HotWire-SDR/sitemap.xml
+Sitemap: https://hotwire-lab.github.io/sdr/sitemap.xml
