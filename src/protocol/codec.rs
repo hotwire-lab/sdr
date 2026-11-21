@@ -1,41 +1,10 @@
-use serde::Deserialize;
+pub use hotwire_core::protocol::{
+    encode_command_8 as build_command_frame, encode_frame as encode_response_frame,
+};
+#[cfg(test)]
+use hotwire_core::protocol::compute_xor_checksum;
 
 use crate::protocol::types::*;
-
-pub fn compute_xor_checksum(bytes: &[u8]) -> u8 {
-    let mut xor = 0u8;
-    for &b in bytes {
-        xor ^= b;
-    }
-    xor
-}
-
-pub fn build_command_frame(cmd_id: u8, p1: u8, p2: u8, p3: u8, p4: u8) -> [u8; 8] {
-    let mut frame = [
-        PROTOCOL_SYNC_0,
-        PROTOCOL_SYNC_1,
-        cmd_id,
-        p1,
-        p2,
-        p3,
-        p4,
-        0,
-    ];
-    frame[7] = compute_xor_checksum(&frame[..7]);
-    frame
-}
-
-pub fn build_ping_status_cmd() -> [u8; 8] {
-    build_command_frame(CMD_PING_STATUS, 0, 0, 0, 0)
-}
-
-pub fn build_get_caps_cmd() -> [u8; 8] {
-    build_command_frame(CMD_GET_CAPS, 0, 0, 0, 0)
-}
-
-pub fn build_bootloader_cmd() -> [u8; 8] {
-    build_command_frame(CMD_BOOTLOADER, 0xb0, 0x07, 0x10, 0xad)
-}
 
 pub fn clamp_sdr_freq_mhz(freq_mhz: i32) -> u16 {
     freq_mhz.clamp(SDR_MIN_FREQ_MHZ as i32, SDR_MAX_FREQ_MHZ as i32) as u16
@@ -91,20 +60,6 @@ pub fn build_sdr_sweep_cfg_cmd(
     )
 }
 
-pub fn encode_response_frame(type_id: u8, payload: &[u8]) -> Vec<u8> {
-    let len = payload.len();
-    let mut frame = Vec::with_capacity(6 + len);
-    frame.push(PROTOCOL_SYNC_0);
-    frame.push(PROTOCOL_SYNC_1);
-    frame.push(type_id);
-    frame.push((len & 0xff) as u8);
-    frame.push(((len >> 8) & 0xff) as u8);
-    frame.extend_from_slice(payload);
-    let chk = compute_xor_checksum(&frame);
-    frame.push(chk);
-    frame
-}
-
 pub fn resolve_sdr_rate_preset(rate_bw_code: u8) -> SdrSampleRatePreset {
     let masked = rate_bw_code & 0x03;
     SDR_SAMPLE_RATE_PRESETS
@@ -114,32 +69,10 @@ pub fn resolve_sdr_rate_preset(rate_bw_code: u8) -> SdrSampleRatePreset {
         .unwrap_or(SDR_SAMPLE_RATE_PRESETS[0])
 }
 
-#[derive(Deserialize)]
-struct RawCapsJson {
-    board: Option<String>,
-    firmware: Option<String>,
-    sdr: Option<bool>,
-    #[serde(rename = "capFlags")]
-    cap_flags: Option<u32>,
-}
-
-pub fn decode_board_capabilities(payload: &[u8]) -> Option<BoardCapabilitiesFrame> {
-    if payload.len() < 2 {
-        return None;
-    }
-    let raw = std::str::from_utf8(payload).ok()?;
-    let parsed: RawCapsJson = serde_json::from_str(raw).ok()?;
-    let board = parsed.board.unwrap_or_else(|| "XIAO-ESP32-S3".to_string());
-    let cap_flags = parsed.cap_flags.unwrap_or(0);
-    let sdr_capable = parsed.sdr.unwrap_or(false)
-        || (cap_flags & 0x04) != 0
-        || board.to_uppercase().contains("S3");
-
-    Some(BoardCapabilitiesFrame {
-        board,
-        firmware: parsed.firmware.unwrap_or_else(|| "1.0.0".to_string()),
-        sdr_capable,
-    })
+pub fn decode_board_capabilities(payload: &[u8]) -> Option<(BoardIdentity, BoardCapabilitiesFrame)> {
+    let identity = BoardIdentity::decode_capabilities(payload)?;
+    let caps = BoardCapabilitiesFrame::from_identity(&identity);
+    Some((identity, caps))
 }
 
 fn now_ms() -> f64 {
@@ -233,9 +166,8 @@ pub fn decode_sdr_raw_iq_frame(payload: &[u8]) -> Option<SdrRawIqFrame> {
 
 pub fn decode_response_payload(type_id: u8, payload: &[u8]) -> Option<DecodedFrame> {
     match type_id {
-        TYPE_BOARD_CAPABILITIES => {
-            decode_board_capabilities(payload).map(DecodedFrame::Capabilities)
-        }
+        TYPE_BOARD_CAPABILITIES => decode_board_capabilities(payload)
+            .map(|(id, caps)| DecodedFrame::Capabilities(id, caps)),
         TYPE_SDR_SPECTRUM_FRAME => {
             decode_sdr_spectrum_frame(payload).map(DecodedFrame::SdrSpectrum)
         }
@@ -339,7 +271,7 @@ mod tests {
     #[test]
     fn identifies_sdr_capable_from_caps_json() {
         let json = br#"{"board":"XIAO-ESP32-S3","sdr":true,"capFlags":7}"#;
-        let s3 = decode_board_capabilities(json).expect("valid caps");
+        let (_, s3) = decode_board_capabilities(json).expect("valid caps");
         assert!(s3.sdr_capable);
 
         let wrapped = encode_response_frame(TYPE_BOARD_CAPABILITIES, json);

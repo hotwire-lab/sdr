@@ -1,17 +1,12 @@
-pub const SYNC_BYTE_1: u8 = 0xaa;
-pub const SYNC_BYTE_2: u8 = 0x55;
-pub const PROTOCOL_SYNC_0: u8 = SYNC_BYTE_1;
-pub const PROTOCOL_SYNC_1: u8 = SYNC_BYTE_2;
+pub use hotwire_core::protocol::{
+    BoardIdentity, CMD_BOOTLOADER, CMD_GET_CAPS, CMD_PING_STATUS, PROTOCOL_SYNC_0,
+    PROTOCOL_SYNC_1, TYPE_BOARD_CAPABILITIES,
+};
 
-pub const CMD_PING_STATUS: u8 = 0x01;
-pub const CMD_GET_CAPS: u8 = 0x02;
 pub const CMD_SDR_TUNE: u8 = 0x30;
 pub const CMD_SDR_STREAM_CTRL: u8 = 0x31;
 pub const CMD_SDR_SWEEP_CFG: u8 = 0x32;
-pub const CMD_ENTER_BOOTLOADER: u8 = 0xf0;
-pub const CMD_BOOTLOADER: u8 = CMD_ENTER_BOOTLOADER;
 
-pub const TYPE_BOARD_CAPABILITIES: u8 = 0x83;
 pub const TYPE_SDR_SPECTRUM_FRAME: u8 = 0x84;
 pub const TYPE_SDR_RAW_IQ_FRAME: u8 = 0x85;
 
@@ -178,6 +173,20 @@ pub struct BoardCapabilitiesFrame {
     pub sdr_capable: bool,
 }
 
+impl BoardCapabilitiesFrame {
+    pub fn from_identity(id: &BoardIdentity) -> Self {
+        let cap_flags = id.get_u64("capFlags").unwrap_or(0) as u32;
+        let sdr_capable = id.get_bool("sdr").unwrap_or(false)
+            || (cap_flags & 0x04) != 0
+            || id.board.to_uppercase().contains("S3");
+        Self {
+            board: id.board.clone(),
+            firmware: id.firmware.clone(),
+            sdr_capable,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SdrSpectrumFrame {
     pub center_freq_mhz: u16,
@@ -214,7 +223,7 @@ pub struct SdrRawIqFrame {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DecodedFrame {
-    Capabilities(BoardCapabilitiesFrame),
+    Capabilities(BoardIdentity, BoardCapabilitiesFrame),
     SdrSpectrum(SdrSpectrumFrame),
     SdrRawIq(SdrRawIqFrame),
 }

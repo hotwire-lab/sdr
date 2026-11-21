@@ -1,3 +1,5 @@
+use hotwire_core::protocol::BoardIdentity;
+use hotwire_core::ui::HotWireTheme;
 use leptos::prelude::*;
 
 use crate::components::bottom_drawer::BottomDrawer;
@@ -17,9 +19,7 @@ use crate::protocol::types::{
     SDR_DSP_FLAG_MAX_HOLD, SDR_STREAM_CONT_IQ, SDR_STREAM_FFT, SDR_STREAM_SINGLE_IQ,
     SDR_STREAM_STOP,
 };
-use crate::transport::serial::{
-    ConnectionStatus, SerialTransport, TransportKind, TransportSnapshot,
-};
+use crate::transport::serial::{create_sdr_transport, TransportKind, TransportSnapshot};
 
 fn perf_now() -> f64 {
     web_sys::window()
@@ -30,9 +30,10 @@ fn perf_now() -> f64 {
 
 #[component]
 pub fn App() -> impl IntoView {
-    let serial_transport = StoredValue::new_local(SerialTransport::new());
+    let serial_transport = StoredValue::new_local(create_sdr_transport());
 
     let transport = RwSignal::new(serial_transport.with_value(|t| t.snapshot()));
+    let identity = RwSignal::new(None::<BoardIdentity>);
     let caps = RwSignal::new(None::<BoardCapabilitiesFrame>);
 
     // SDR state
@@ -73,11 +74,12 @@ pub fn App() -> impl IntoView {
     serial_transport.with_value(|st| {
         st.init(
             move |snap: TransportSnapshot| {
-                let disconnected = snap.status != ConnectionStatus::Connected;
+                let disconnected = !snap.status.is_active();
                 transport.set(snap);
                 if disconnected {
                     sdr_streaming.set(false);
                     streaming_cont_iq.set(false);
+                    identity.set(None);
                     caps.set(None);
                     demuxer.update_value(|d| d.reset());
                 }
@@ -87,7 +89,10 @@ pub fn App() -> impl IntoView {
                     d.feed(
                         bytes,
                         |frame| match frame {
-                            DecodedFrame::Capabilities(c) => caps.set(Some(c)),
+                            DecodedFrame::Capabilities(id, c) => {
+                                identity.set(Some(id));
+                                caps.set(Some(c));
+                            }
                             DecodedFrame::SdrSpectrum(spec) => {
                                 let now = perf_now();
                                 let prev_ts = last_frame_ts.get_value();
@@ -154,11 +159,11 @@ pub fn App() -> impl IntoView {
     });
 
     let send_sdr_tune = move |freq_mhz: u16, bw_code: u8, gain: u8| {
-        if transport.get_untracked().status != ConnectionStatus::Connected {
+        if !transport.get_untracked().status.is_active() {
             return;
         }
         let cmd = build_sdr_tune_cmd(freq_mhz as i32, bw_code, gain as i32);
-        serial_transport.with_value(|t| t.write_bytes(&cmd));
+        serial_transport.with_value(|t| t.send_bytes(&cmd));
     };
 
     let build_dsp_flags = move || -> u8 {
@@ -175,7 +180,7 @@ pub fn App() -> impl IntoView {
     };
 
     let send_sdr_stream_ctrl = move |mode: u8, size_param: u8| {
-        if transport.get_untracked().status != ConnectionStatus::Connected {
+        if !transport.get_untracked().status.is_active() {
             return;
         }
         let cmd = build_sdr_stream_ctrl_cmd(
@@ -184,14 +189,14 @@ pub fn App() -> impl IntoView {
             build_dsp_flags(),
             sdr_target_fps.get_untracked(),
         );
-        serial_transport.with_value(|t| t.write_bytes(&cmd));
+        serial_transport.with_value(|t| t.send_bytes(&cmd));
     };
 
     // Re-send stream ctrl when DSP/FFT/FPS settings change while streaming
     Effect::new(move |_| {
         let streaming = sdr_streaming.get();
         let cont_iq = streaming_cont_iq.get();
-        let conn = transport.get().status == ConnectionStatus::Connected;
+        let conn = transport.get().status.is_active();
         let fft = sdr_fft_log2.get();
         let _mh = sdr_max_hold_detector.get();
         let _sw = sdr_sub_windows.get();
@@ -202,13 +207,13 @@ pub fn App() -> impl IntoView {
         }
     });
 
-    let connected = Signal::derive(move || transport.get().status == ConnectionStatus::Connected);
+    let connected = Signal::derive(move || transport.get().status.is_active());
     let invert_spectrum =
         Signal::derive(move || transport.get().transport != TransportKind::Demo);
     let sdr_span_mhz =
         Signal::derive(move || resolve_sdr_rate_preset(sdr_rate_bw_code.get()).span_mhz);
 
-    let on_connect = Callback::new(move |_| serial_transport.with_value(|t| t.connect()));
+    let on_connect = Callback::new(move |_| serial_transport.with_value(|t| t.connect_usb()));
     let on_disconnect = Callback::new(move |_| serial_transport.with_value(|t| t.disconnect()));
     let on_start_demo = Callback::new(move |_| serial_transport.with_value(|t| t.start_demo()));
 
@@ -267,15 +272,15 @@ pub fn App() -> impl IntoView {
     let on_toggle_sweep = Callback::new(move |_| {
         let next = !sdr_sweep_enabled.get_untracked();
         sdr_sweep_enabled.set(next);
-        if transport.get_untracked().status == ConnectionStatus::Connected {
+        if transport.get_untracked().status.is_active() {
             let cmd = build_sdr_sweep_cfg_cmd(2400, if next { 4 } else { 0 }, 4);
-            serial_transport.with_value(|t| t.write_bytes(&cmd));
+            serial_transport.with_value(|t| t.send_bytes(&cmd));
         }
     });
 
     let on_open_raw_iq = Callback::new(move |_| {
         raw_iq_open.set(true);
-        if transport.get_untracked().status == ConnectionStatus::Connected
+        if transport.get_untracked().status.is_active()
             && raw_iq_frame.get_untracked().is_none()
         {
             send_sdr_tune(
@@ -326,7 +331,7 @@ pub fn App() -> impl IntoView {
 
     let on_open_scanner = Callback::new(move |_| {
         scanner_open.set(true);
-        if transport.get_untracked().status == ConnectionStatus::Connected {
+        if transport.get_untracked().status.is_active() {
             if sdr_rate_bw_code.get_untracked() != 1 {
                 sdr_rate_bw_code.set(1);
             }
@@ -341,7 +346,7 @@ pub fn App() -> impl IntoView {
 
     let on_close_scanner = Callback::new(move |_| {
         scanner_open.set(false);
-        if transport.get_untracked().status == ConnectionStatus::Connected {
+        if transport.get_untracked().status.is_active() {
             send_sdr_tune(
                 sdr_center_freq_mhz.get_untracked(),
                 sdr_rate_bw_code.get_untracked(),
@@ -370,10 +375,11 @@ pub fn App() -> impl IntoView {
     let on_close_drawer = Callback::new(move |_| drawer_open.set(false));
 
     view! {
+        <HotWireTheme />
         <div class="app-shell">
             <TopToolbar
                 transport=transport
-                caps=caps
+                identity=identity
                 on_connect=on_connect
                 on_disconnect=on_disconnect
                 on_start_demo=on_start_demo
@@ -442,7 +448,7 @@ pub fn App() -> impl IntoView {
             <BottomDrawer
                 open=drawer_open
                 on_close=on_close_drawer
-                caps=caps
+                identity=identity
                 serial_transport=serial_transport
             />
         </div>

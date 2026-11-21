@@ -498,6 +498,38 @@ impl DemoSimulator {
     }
 }
 
+impl hotwire_core::transport::DemoBackend for DemoSimulator {
+    fn device_name(&self) -> &str {
+        "XIAO-ESP32-S3 (Demo)"
+    }
+
+    fn vid_pid(&self) -> &str {
+        "DEMO:0002"
+    }
+
+    fn tick_interval_ms(&self) -> Option<i32> {
+        Some(self.interval_ms() as i32)
+    }
+
+    fn on_start(&mut self) -> Vec<u8> {
+        self.reset();
+        Vec::new()
+    }
+
+    fn handle_command(&mut self, bytes: &[u8]) -> Vec<u8> {
+        let (outputs, _) = self.handle_tx(bytes);
+        let mut flat = Vec::new();
+        for chunk in outputs {
+            flat.extend_from_slice(&chunk);
+        }
+        flat
+    }
+
+    fn tick(&mut self) -> Option<Vec<u8>> {
+        self.tick_frame()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
