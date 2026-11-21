@@ -1,5 +1,5 @@
 use hotwire_core::flasher::{FirmwareProfile, FlasherPanel};
-use hotwire_core::protocol::{BoardIdentity, ToolId};
+use hotwire_core::protocol::{BoardIdentity, FirmwareMismatch, ToolId};
 use hotwire_core::ui::BottomSheet;
 use leptos::prelude::*;
 
@@ -23,6 +23,7 @@ pub fn BottomDrawer(
     open: RwSignal<bool>,
     on_close: Callback<()>,
     identity: RwSignal<Option<BoardIdentity>>,
+    mismatch: RwSignal<Option<FirmwareMismatch>>,
     serial_transport: StoredValue<SerialTransport, LocalStorage>,
 ) -> impl IntoView {
     view! {
@@ -38,6 +39,7 @@ pub fn BottomDrawer(
                     transport=serial_transport
                     expected_tool=ToolId::Sdr
                     identity=identity
+                    mismatch=mismatch
                 />
             </div>
 

@@ -1,5 +1,6 @@
-use hotwire_core::protocol::BoardIdentity;
-use hotwire_core::ui::HotWireTheme;
+use hotwire_core::protocol::{BoardIdentity, FirmwareMismatch, ToolId};
+use hotwire_core::transport::HandshakeGuard;
+use hotwire_core::ui::{FirmwareMismatchModal, HotWireTheme};
 use leptos::prelude::*;
 
 use crate::components::bottom_drawer::BottomDrawer;
@@ -35,6 +36,9 @@ pub fn App() -> impl IntoView {
     let transport = RwSignal::new(serial_transport.with_value(|t| t.snapshot()));
     let identity = RwSignal::new(None::<BoardIdentity>);
     let caps = RwSignal::new(None::<BoardCapabilitiesFrame>);
+    let mismatch = RwSignal::new(None::<FirmwareMismatch>);
+    let flasher_mismatch = RwSignal::new(None::<FirmwareMismatch>);
+    let handshake_guard = StoredValue::new_local(HandshakeGuard::new(ToolId::Sdr));
 
     // SDR state
     let sdr_streaming = RwSignal::new(false);
@@ -75,13 +79,30 @@ pub fn App() -> impl IntoView {
         st.init(
             move |snap: TransportSnapshot| {
                 let disconnected = !snap.status.is_active();
+                let is_usb = snap.status.is_usb_connected();
+                let dev_name = snap.device_name.clone();
                 transport.set(snap);
                 if disconnected {
+                    handshake_guard.update_value(|g| g.cancel());
                     sdr_streaming.set(false);
                     streaming_cont_iq.set(false);
                     identity.set(None);
                     caps.set(None);
                     demuxer.update_value(|d| d.reset());
+                } else if is_usb {
+                    mismatch.set(None);
+                    flasher_mismatch.set(None);
+                    handshake_guard.update_value(|g| {
+                        g.arm_timeout(dev_name, 3500, move |mm| {
+                            mismatch.set(Some(mm.clone()));
+                            flasher_mismatch.set(Some(mm));
+                            serial_transport.with_value(|t| t.disconnect());
+                        });
+                    });
+                } else {
+                    handshake_guard.update_value(|g| g.cancel());
+                    mismatch.set(None);
+                    flasher_mismatch.set(None);
                 }
             },
             move |bytes: &[u8]| {
@@ -90,6 +111,22 @@ pub fn App() -> impl IntoView {
                         bytes,
                         |frame| match frame {
                             DecodedFrame::Capabilities(id, c) => {
+                                if transport.get_untracked().status.is_usb_connected() {
+                                    let mut verdict = Ok(());
+                                    handshake_guard.update_value(|g| {
+                                        verdict = g.verify(&id);
+                                    });
+                                    if let Err(mm) = verdict {
+                                        mismatch.set(Some(mm.clone()));
+                                        flasher_mismatch.set(Some(mm));
+                                        serial_transport.with_value(|t| t.disconnect());
+                                        return;
+                                    }
+                                } else {
+                                    handshake_guard.update_value(|g| g.cancel());
+                                }
+                                mismatch.set(None);
+                                flasher_mismatch.set(None);
                                 identity.set(Some(id));
                                 caps.set(Some(c));
                             }
@@ -373,6 +410,10 @@ pub fn App() -> impl IntoView {
 
     let on_toggle_drawer = Callback::new(move |_| drawer_open.update(|o| *o = !*o));
     let on_close_drawer = Callback::new(move |_| drawer_open.set(false));
+    let on_open_flasher_from_mismatch = Callback::new(move |_| {
+        mismatch.set(None);
+        drawer_open.set(true);
+    });
 
     view! {
         <HotWireTheme />
@@ -449,7 +490,13 @@ pub fn App() -> impl IntoView {
                 open=drawer_open
                 on_close=on_close_drawer
                 identity=identity
+                mismatch=flasher_mismatch
                 serial_transport=serial_transport
+            />
+
+            <FirmwareMismatchModal
+                mismatch=mismatch
+                on_open_flasher=on_open_flasher_from_mismatch
             />
         </div>
     }
