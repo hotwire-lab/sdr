@@ -43,61 +43,7 @@ body,
   background: var(--bg-root);
 }
 
-/* Top Toolbar */
-.top-toolbar {
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.toolbar-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 14px;
-  flex-wrap: wrap;
-}
-
-.brand-cluster {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.brand-logo {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  display: grid;
-  place-items: center;
-}
-
-.brand-text {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.brand-title {
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: 0.01em;
-}
-
-.brand-badge {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 999px;
-  background: rgba(56, 189, 248, 0.15);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.35);
-}
-
+/* Start RF / Stop RF Toolbar Button (shared toolbar & theme come from hotwire-core) */
 .btn-stream {
   display: inline-flex;
   align-items: center;
@@ -112,55 +58,6 @@ body,
 
 .btn-stream .btn-icon {
   font-size: 11px;
-}
-
-.connection-cluster {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #64748b;
-}
-
-.status-connected .status-dot {
-  background: var(--success);
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
-}
-
-.status-connecting .status-dot {
-  background: var(--warning);
-}
-
-.status-vidpid {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.toolbar-error-banner {
-  background: rgba(239, 68, 68, 0.14);
-  border-top: 1px solid rgba(239, 68, 68, 0.45);
-  color: #fca5a5;
-  padding: 5px 12px;
-  font-size: 12px;
 }
 
 /* Shared Inputs & Buttons */
@@ -1162,189 +1059,11 @@ input[type='text'] {
   display: block;
 }
 
-/* Bottom Drawer */
-.bottom-drawer {
-  height: 250px;
-  flex-shrink: 0;
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border-subtle);
+/* Drawer Column (BottomSheet + FlasherPanel styles come from hotwire-core) */
+.drawer-col {
   display: flex;
   flex-direction: column;
-}
-
-.drawer-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 12px;
-  background: #0b1220;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-wrap: wrap;
-}
-
-.drawer-tabs {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-}
-
-.drawer-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.flasher-board-badge {
-  font-size: 11px;
-  font-weight: 600;
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  border-radius: 4px;
-  padding: 2px 7px;
-}
-
-.drawer-tab {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--text-secondary);
-  border-radius: 5px;
-  padding: 3px 9px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.drawer-tab.active {
-  background: var(--bg-elevated);
-  border-color: var(--border-subtle);
-  color: var(--text-primary);
-}
-
-.drawer-macros {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  flex-wrap: wrap;
-}
-
-.btn-macro {
-  background: #020617;
-  border: 1px solid var(--border-subtle);
-  color: #7dd3fc;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.btn-macro:hover:not(:disabled) {
-  background: #1e293b;
-}
-
-.drawer-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.terminal-pane {
-  flex: 1;
-  min-height: 0;
-  padding: 4px;
-  background: #020617;
-}
-
-.xterm-host {
-  width: 100%;
-  height: 100%;
-}
-
-.flasher-pane {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 8px 12px;
-  gap: 8px;
-}
-
-.flasher-controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.file-picker-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 5px;
-  background: var(--bg-hover);
-  border: 1px dashed var(--border-subtle);
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.file-picker-label:hover {
-  border-color: var(--accent-cyan);
-}
-
-.file-picker-label input[type='file'] {
-  display: none;
-}
-
-.flash-progress-track {
-  flex: 0 0 6px;
-  width: 100%;
-  background: #0f172a;
-  border-radius: 999px;
-  overflow: hidden;
-  margin: 4px 0;
-}
-
-.flash-progress-fill {
-  height: 100%;
-  background: var(--accent-green);
-  transition: width 0.15s ease;
-}
-
-.flasher-hint {
-  font-size: 11px;
-  color: var(--text-secondary);
-  flex: 1;
-}
-
-.flasher-error {
-  padding: 5px 10px;
-  border-radius: 5px;
-  background: rgba(239, 68, 68, 0.16);
-  border: 1px solid rgba(239, 68, 68, 0.45);
-  color: #fca5a5;
-  font-size: 12px;
-}
-
-.flasher-log {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  background: #020617;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #cbd5e1;
-}
-
-.flasher-placeholder {
-  color: #64748b;
 }
 
 /* ==========================================================================
@@ -1352,19 +1071,6 @@ input[type='text'] {
    ========================================================================== */
 
 @media (max-width: 768px) {
-  .toolbar-row {
-    padding: 6px 10px;
-    gap: 8px;
-  }
-
-  .brand-badge {
-    display: none;
-  }
-
-  .status-vidpid {
-    display: none;
-  }
-
   .sdr-control-bar {
     padding: 8px 10px 6px;
     gap: 6px;
@@ -1440,22 +1146,6 @@ input[type='text'] {
 }
 
 @media (max-width: 520px) {
-  .brand-title {
-    font-size: 13px;
-  }
-
-  .status-pill {
-    padding: 3px 8px;
-    font-size: 11px;
-  }
-
-  .status-label {
-    max-width: 85px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .btn-stream {
     padding: 5px 10px;
     min-width: 82px;
@@ -1478,11 +1168,6 @@ input[type='text'] {
   .gain-slider {
     flex: 1;
     max-width: 120px;
-  }
-
-  .action-cluster {
-    width: 100%;
-    justify-content: flex-end;
   }
 
   .hud-controls .btn-mini {
