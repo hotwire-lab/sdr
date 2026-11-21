@@ -686,7 +686,7 @@ export async function js_flash_firmware(
       onLog(`Loaded ${profile.prefix}.bin (${buf.byteLength} bytes) -> 0x${addr.toString(16)}`);
     }
 
-    onLog('[2/4] Loading esptool-js & connecting to ROM bootloader...');
+    onLog('[2/4] Connecting to ROM bootloader...');
     const { ESPLoader, Transport } = await import('https://esm.sh/esptool-js@0.7.1');
     const espTransport = new Transport(port, false);
     const esploader = new ESPLoader({

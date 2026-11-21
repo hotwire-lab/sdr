@@ -143,9 +143,9 @@ pub fn TopToolbar(
                             if drawer_open.get() { "btn btn-ghost active" } else { "btn btn-ghost" }
                         }
                         on:click=move |_| on_toggle_drawer.run(())
-                        title="Open XIAO ESP32-S3 / ESP32-C6 Web Flasher (esptool-js)"
+                        title="Open XIAO ESP32-S3 / ESP32-C6 Web Flasher"
                     >
-                        "Web Flasher"
+                        "⚡ Flasher"
                     </button>
                 </div>
             </div>

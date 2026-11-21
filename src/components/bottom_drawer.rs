@@ -144,7 +144,7 @@ pub fn BottomDrawer(
             <section class="bottom-drawer" aria-label="XIAO ESP32 Web Flasher">
                 <div class="drawer-header">
                     <div class="drawer-tabs">
-                        <span class="drawer-title">"Web Flasher (esptool-js)"</span>
+                        <span class="drawer-title">"Web Flasher"</span>
                         <span class="flasher-board-badge">
                             {move || {
                                 let b = selected_board.get();
@@ -319,7 +319,7 @@ pub fn BottomDrawer(
                                 if logs.is_empty() {
                                     view! {
                                         <div class="flasher-placeholder">
-                                            "Select your board and click Flash Firmware to program bundled SDR binaries directly from Chromium via Web Serial & esptool-js."
+                                            "Select your board and click Flash Firmware to program bundled SDR binaries directly from your browser via Web Serial / WebUSB."
                                         </div>
                                     }
                                     .into_any()
