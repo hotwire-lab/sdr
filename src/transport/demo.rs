@@ -517,10 +517,23 @@ impl hotwire_core::transport::DemoBackend for DemoSimulator {
     }
 
     fn handle_command(&mut self, bytes: &[u8]) -> Vec<u8> {
-        let (outputs, _) = self.handle_tx(bytes);
         let mut flat = Vec::new();
-        for chunk in outputs {
-            flat.extend_from_slice(&chunk);
+        let mut pos = 0;
+        while pos + 8 <= bytes.len()
+            && bytes[pos] == PROTOCOL_SYNC_0
+            && bytes[pos + 1] == PROTOCOL_SYNC_1
+        {
+            let (outputs, _) = self.handle_tx(&bytes[pos..pos + 8]);
+            for chunk in outputs {
+                flat.extend_from_slice(&chunk);
+            }
+            pos += 8;
+        }
+        if pos < bytes.len() {
+            let (outputs, _) = self.handle_tx(&bytes[pos..]);
+            for chunk in outputs {
+                flat.extend_from_slice(&chunk);
+            }
         }
         flat
     }
