@@ -166,36 +166,48 @@ pub fn freq_mhz_to_bin(freq_mhz: f64, fft_bins: usize, center_freq_mhz: f64, spa
     ((freq_mhz - center_freq_mhz) / span_mhz) * n + n / 2.0
 }
 
-pub fn apply_dc_spike_notch(bins: &[f32]) -> Vec<f32> {
+pub fn apply_dc_spike_notch_in_place(bins: &mut [f32]) {
     let n = bins.len();
-    let mut out = bins.to_vec();
     if n < 8 {
-        return out;
+        return;
     }
     let center = n / 2;
     let left_val = bins[center - 2];
     let right_val = bins[center + 2];
 
-    out[center - 1] = left_val * 0.75 + right_val * 0.25;
-    out[center] = (left_val + right_val) * 0.5;
-    out[center + 1] = left_val * 0.25 + right_val * 0.75;
+    bins[center - 1] = left_val * 0.75 + right_val * 0.25;
+    bins[center] = (left_val + right_val) * 0.5;
+    bins[center + 1] = left_val * 0.25 + right_val * 0.75;
+}
+
+pub fn apply_dc_spike_notch(bins: &[f32]) -> Vec<f32> {
+    let mut out = bins.to_vec();
+    apply_dc_spike_notch_in_place(&mut out);
     out
 }
 
-pub fn apply_spur_blanker(bins: &[f32], threshold_db: f32) -> Vec<f32> {
+pub fn apply_spur_blanker_in_place(bins: &mut [f32], threshold_db: f32) {
     let n = bins.len();
-    let mut out = bins.to_vec();
     if n < 6 {
-        return out;
+        return;
     }
+    // Track unmodified previous bin so neighboring replacements never cascade.
+    let mut prev_orig = bins[0];
     for i in 1..(n - 1) {
-        let left = bins[i - 1];
+        let curr = bins[i];
         let right = bins[i + 1];
-        let neighbor_peak = left.max(right);
-        if bins[i] - neighbor_peak > threshold_db {
-            out[i] = (left + right) * 0.5;
+        let neighbor_peak = prev_orig.max(right);
+        if curr - neighbor_peak > threshold_db {
+            bins[i] = (prev_orig + right) * 0.5;
         }
+        prev_orig = curr;
     }
+}
+
+#[allow(dead_code)]
+pub fn apply_spur_blanker(bins: &[f32], threshold_db: f32) -> Vec<f32> {
+    let mut out = bins.to_vec();
+    apply_spur_blanker_in_place(&mut out, threshold_db);
     out
 }
 
@@ -224,9 +236,10 @@ pub fn compute_spectrum_stats(
         }
     }
 
-    let mut sorted = bins.to_vec();
-    sorted.sort_by(|a, b| a.total_cmp(b));
-    let noise_floor_dbfs = sorted[n / 4];
+    // O(n) quickselect for the 25th-percentile noise floor estimate (instead of O(n log n) full sort)
+    let mut scratch = bins.to_vec();
+    let (_, nth, _) = scratch.select_nth_unstable_by(n / 4, |a, b| a.total_cmp(b));
+    let noise_floor_dbfs = *nth;
     let peak_freq_mhz = bin_to_freq_mhz(peak_bin_index as f64, n, center_freq_mhz, span_mhz);
 
     SpectrumTraceStats {
@@ -236,6 +249,64 @@ pub fn compute_spectrum_stats(
         peak_freq_mhz,
         snr_db: peak_dbfs - noise_floor_dbfs,
     }
+}
+
+/// Updates `slot` in place when dimensions match, avoiding per-frame Vec reallocations.
+pub fn update_spectrum_traces_in_place(
+    slot: &mut Option<SpectrumTraceState>,
+    raw_dbfs: &[f32],
+    center_freq_mhz: f64,
+    span_mhz: f64,
+    options: DspProcessOptions,
+) {
+    let fft_bins = raw_dbfs.len();
+    let avg_alpha = options.avg_alpha;
+
+    let can_reuse = matches!(slot, Some(prev) if prev.fft_bins == fft_bins);
+    if !can_reuse {
+        *slot = Some(update_spectrum_traces(
+            raw_dbfs,
+            center_freq_mhz,
+            span_mhz,
+            slot.as_ref(),
+            options,
+        ));
+        return;
+    }
+
+    let state = slot.as_mut().unwrap();
+    let reset_required = options.clear_peak_hold
+        || (state.center_freq_mhz - center_freq_mhz).abs() > 0.01
+        || (state.span_mhz - span_mhz).abs() > 0.01;
+
+    state.live_dbfs.clear();
+    state.live_dbfs.extend_from_slice(raw_dbfs);
+    if options.invert_spectrum {
+        state.live_dbfs.reverse();
+    }
+    if options.dc_notch {
+        apply_dc_spike_notch_in_place(&mut state.live_dbfs);
+    }
+    if options.spur_blanker {
+        apply_spur_blanker_in_place(&mut state.live_dbfs, options.spur_threshold_db);
+    }
+
+    if reset_required {
+        state.avg_dbfs.copy_from_slice(&state.live_dbfs);
+        state.peak_hold_dbfs.copy_from_slice(&state.live_dbfs);
+    } else {
+        let decay_step = options.peak_decay_db_per_sec.max(0.0) * options.dt_sec.clamp(0.0, 1.0);
+        let one_minus_alpha = 1.0 - avg_alpha;
+        for i in 0..fft_bins {
+            let val = state.live_dbfs[i];
+            state.avg_dbfs[i] = state.avg_dbfs[i] * one_minus_alpha + val * avg_alpha;
+            state.peak_hold_dbfs[i] = (state.peak_hold_dbfs[i] - decay_step).max(val);
+        }
+    }
+
+    state.center_freq_mhz = center_freq_mhz;
+    state.span_mhz = span_mhz;
+    state.stats = compute_spectrum_stats(&state.live_dbfs, center_freq_mhz, span_mhz);
 }
 
 pub fn update_spectrum_traces(
@@ -250,10 +321,10 @@ pub fn update_spectrum_traces(
         processed.reverse();
     }
     if options.dc_notch {
-        processed = apply_dc_spike_notch(&processed);
+        apply_dc_spike_notch_in_place(&mut processed);
     }
     if options.spur_blanker {
-        processed = apply_spur_blanker(&processed, options.spur_threshold_db);
+        apply_spur_blanker_in_place(&mut processed, options.spur_threshold_db);
     }
 
     let fft_bins = processed.len();

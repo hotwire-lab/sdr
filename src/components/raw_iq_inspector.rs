@@ -33,8 +33,12 @@ pub fn RawIqInspector(
             let rect = t_canvas.get_bounding_client_rect();
             let w = rect.width().floor().max(120.0);
             let h = rect.height().floor().max(120.0);
-            t_canvas.set_width((w * dpr).floor() as u32);
-            t_canvas.set_height((h * dpr).floor() as u32);
+            let pw = (w * dpr).floor() as u32;
+            let ph = (h * dpr).floor() as u32;
+            if t_canvas.width() != pw || t_canvas.height() != ph {
+                t_canvas.set_width(pw);
+                t_canvas.set_height(ph);
+            }
 
             if let Ok(Some(ctx_obj)) = t_canvas.get_context("2d") {
                 if let Ok(ctx) = ctx_obj.dyn_into::<web_sys::CanvasRenderingContext2d>() {
@@ -112,8 +116,12 @@ pub fn RawIqInspector(
             let rect = c_canvas.get_bounding_client_rect();
             let w = rect.width().floor().max(120.0);
             let h = rect.height().floor().max(120.0);
-            c_canvas.set_width((w * dpr).floor() as u32);
-            c_canvas.set_height((h * dpr).floor() as u32);
+            let pw = (w * dpr).floor() as u32;
+            let ph = (h * dpr).floor() as u32;
+            if c_canvas.width() != pw || c_canvas.height() != ph {
+                c_canvas.set_width(pw);
+                c_canvas.set_height(ph);
+            }
 
             if let Ok(Some(ctx_obj)) = c_canvas.get_context("2d") {
                 if let Ok(ctx) = ctx_obj.dyn_into::<web_sys::CanvasRenderingContext2d>() {
@@ -143,20 +151,36 @@ pub fn RawIqInspector(
 
                     if let Some(ref f) = cur_frame {
                         let step = (f.sample_count / 1600).max(1);
+                        // Pass 1: Normal points (single fillStyle change)
+                        ctx.set_fill_style_str("rgba(52, 211, 153, 0.65)");
                         let mut i = 0;
+                        let mut any_clipped = false;
                         while i < f.sample_count {
                             let iv = f.i_samples[i] as f64;
                             let qv = f.q_samples[i] as f64;
-                            let x = cx + (iv / 128.0) * radius;
-                            let y = cy - (qv / 128.0) * radius;
-                            let clipped = iv.abs() >= 126.0 || qv.abs() >= 126.0;
-                            ctx.set_fill_style_str(if clipped {
-                                "rgba(248, 113, 113, 0.85)"
+                            if iv.abs() >= 126.0 || qv.abs() >= 126.0 {
+                                any_clipped = true;
                             } else {
-                                "rgba(52, 211, 153, 0.65)"
-                            });
-                            ctx.fill_rect(x - 1.0, y - 1.0, 2.5, 2.5);
+                                let x = cx + (iv / 128.0) * radius;
+                                let y = cy - (qv / 128.0) * radius;
+                                ctx.fill_rect(x - 1.0, y - 1.0, 2.5, 2.5);
+                            }
                             i += step;
+                        }
+                        // Pass 2: Clipped points only if any occurred
+                        if any_clipped {
+                            ctx.set_fill_style_str("rgba(248, 113, 113, 0.85)");
+                            i = 0;
+                            while i < f.sample_count {
+                                let iv = f.i_samples[i] as f64;
+                                let qv = f.q_samples[i] as f64;
+                                if iv.abs() >= 126.0 || qv.abs() >= 126.0 {
+                                    let x = cx + (iv / 128.0) * radius;
+                                    let y = cy - (qv / 128.0) * radius;
+                                    ctx.fill_rect(x - 1.0, y - 1.0, 2.5, 2.5);
+                                }
+                                i += step;
+                            }
                         }
                     }
                     ctx.restore();

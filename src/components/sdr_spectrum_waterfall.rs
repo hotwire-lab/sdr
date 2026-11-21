@@ -94,6 +94,17 @@ pub fn SdrSpectrumWaterfall(
     let spectrum_canvas_ref = NodeRef::<html::Canvas>::new();
     let waterfall_canvas_ref = NodeRef::<html::Canvas>::new();
     let offscreen_wf = StoredValue::new_local(None::<web_sys::HtmlCanvasElement>);
+    let wf_row_buf = StoredValue::new_local(vec![0u8; (WF_WIDTH as usize) * 4]);
+    let resize_ver = RwSignal::new(0u64);
+    let raf_pending = StoredValue::new(false);
+
+    if let Some(win) = web_sys::window() {
+        let cb = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
+            resize_ver.update(|v| *v = v.wrapping_add(1));
+        });
+        let _ = win.add_event_listener_with_callback("resize", cb.as_ref().unchecked_ref());
+        cb.forget();
+    }
 
     let colormap = RwSignal::new(ColormapId::Turbo);
     let min_dbfs = RwSignal::new(-115i32);
@@ -173,53 +184,53 @@ pub fn SdrSpectrumWaterfall(
         let bins = &t.live_dbfs;
         let n_bins = bins.len();
 
-        let mut row_bytes = vec![0u8; (WF_WIDTH as usize) * 4];
-        for x in 0..(WF_WIDTH as usize) {
-            let bin_start = (x * n_bins) / (WF_WIDTH as usize);
-            let bin_end = (((x + 1) * n_bins) / (WF_WIDTH as usize)).max(bin_start + 1);
-            let mut peak_val = -130.0f32;
-            for &v in &bins[bin_start..bin_end.min(n_bins)] {
-                if v > peak_val {
-                    peak_val = v;
+        wf_row_buf.update_value(|row_bytes| {
+            for x in 0..(WF_WIDTH as usize) {
+                let bin_start = (x * n_bins) / (WF_WIDTH as usize);
+                let bin_end = (((x + 1) * n_bins) / (WF_WIDTH as usize)).max(bin_start + 1);
+                let mut peak_val = -130.0f32;
+                for &v in &bins[bin_start..bin_end.min(n_bins)] {
+                    if v > peak_val {
+                        peak_val = v;
+                    }
                 }
+                let lut_idx = map_db_to_lut_index(peak_val, min_db, max_db) * 4;
+                let p = x * 4;
+                row_bytes[p] = lut[lut_idx];
+                row_bytes[p + 1] = lut[lut_idx + 1];
+                row_bytes[p + 2] = lut[lut_idx + 2];
+                row_bytes[p + 3] = 255;
             }
-            let lut_idx = map_db_to_lut_index(peak_val, min_db, max_db) * 4;
-            let p = x * 4;
-            row_bytes[p] = lut[lut_idx];
-            row_bytes[p + 1] = lut[lut_idx + 1];
-            row_bytes[p + 2] = lut[lut_idx + 2];
-            row_bytes[p + 3] = 255;
-        }
 
-        if let Ok(img) =
-            web_sys::ImageData::new_with_u8_clamped_array_and_sh(Clamped(&row_bytes), WF_WIDTH, 1)
-        {
-            let _ = ctx.put_image_data(&img, 0.0, 0.0);
-        }
+            if let Ok(img) = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
+                Clamped(row_bytes.as_slice()),
+                WF_WIDTH,
+                1,
+            ) {
+                let _ = ctx.put_image_data(&img, 0.0, 0.0);
+            }
+        });
     });
 
-    // Draw both high-DPI canvases whenever state or frame updates
-    Effect::new(move |_| {
-        let _ver = frame_version.get();
-        let _clr = wf_clear_rev.get();
-        let cur_trace = trace.get();
+    let render_canvases = move || {
+        let cur_trace = trace.get_untracked();
         let active_center = cur_trace
             .as_ref()
             .map(|t| t.center_freq_mhz)
-            .unwrap_or_else(|| center_freq_mhz.get() as f64);
+            .unwrap_or_else(|| center_freq_mhz.get_untracked() as f64);
         let active_span = cur_trace
             .as_ref()
             .map(|t| t.span_mhz)
-            .unwrap_or_else(|| span_mhz.get());
+            .unwrap_or_else(|| span_mhz.get_untracked());
         let start_freq = active_center - active_span / 2.0;
         let end_freq = active_center + active_span / 2.0;
-        let min_db = min_dbfs.get() as f64;
-        let max_db = max_dbfs.get() as f64;
-        let bands_on = show_band_overlays.get();
-        let cur_m1 = m1.get();
-        let cur_m2 = m2.get();
-        let cur_hover = hover_info.get();
-        let cur_cmap = colormap.get();
+        let min_db = min_dbfs.get_untracked() as f64;
+        let max_db = max_dbfs.get_untracked() as f64;
+        let bands_on = show_band_overlays.get_untracked();
+        let cur_m1 = m1.get_untracked();
+        let cur_m2 = m2.get_untracked();
+        let cur_hover = hover_info.get_untracked();
+        let cur_cmap = colormap.get_untracked();
 
         let dpr = web_sys::window()
             .map(|w| w.device_pixel_ratio())
@@ -493,20 +504,22 @@ pub fn SdrSpectrumWaterfall(
                     let bar_w = 12.0;
                     let bar_y = 12.0;
                     let bar_h = (plot_h - 24.0).max(40.0);
-                    let bar_steps = bar_h as i32;
-                    for py in 0..bar_steps {
-                        let idx = (((1.0 - py as f64 / (bar_h - 1.0).max(1.0)) * 255.0).round()
-                            as usize)
-                            .min(255)
-                            * 4;
-                        ctx.set_fill_style_str(&format!(
-                            "rgb({}, {}, {})",
-                            lut[idx],
-                            lut[idx + 1],
-                            lut[idx + 2]
-                        ));
-                        ctx.fill_rect(bar_x, bar_y + py as f64, bar_w, 1.0);
+                    let grad = ctx.create_linear_gradient(0.0, bar_y, 0.0, bar_y + bar_h);
+                    for s in 0..=16usize {
+                        let stop = (s as f32) / 16.0;
+                        let lut_entry = (((1.0 - stop) * 255.0).round() as usize).min(255) * 4;
+                        let _ = grad.add_color_stop(
+                            stop,
+                            &format!(
+                                "rgb({},{},{})",
+                                lut[lut_entry],
+                                lut[lut_entry + 1],
+                                lut[lut_entry + 2]
+                            ),
+                        );
                     }
+                    ctx.set_fill_style_canvas_gradient(&grad);
+                    ctx.fill_rect(bar_x, bar_y, bar_w, bar_h);
                     ctx.set_stroke_style_str("#475569");
                     ctx.stroke_rect(bar_x, bar_y, bar_w, bar_h);
                     ctx.set_fill_style_str("#94a3b8");
@@ -528,6 +541,38 @@ pub fn SdrSpectrumWaterfall(
                     ctx.restore();
                 }
             }
+        }
+    };
+
+    // Coalesce high-DPI canvas repaints onto browser requestAnimationFrame
+    Effect::new(move |_| {
+        let _r = resize_ver.get();
+        let _ver = frame_version.get();
+        let _clr = wf_clear_rev.get();
+        let _has_trace = trace.with(|t| t.is_some());
+        let _cf = center_freq_mhz.get();
+        let _sp = span_mhz.get();
+        let _min = min_dbfs.get();
+        let _max = max_dbfs.get();
+        let _b = show_band_overlays.get();
+        let _m1 = m1.get();
+        let _m2 = m2.get();
+        let _h = hover_info.get();
+        let _cm = colormap.get();
+
+        if raf_pending.get_value() {
+            return;
+        }
+        raf_pending.set_value(true);
+        if let Some(win) = web_sys::window() {
+            let cb = wasm_bindgen::closure::Closure::once_into_js(move || {
+                raf_pending.set_value(false);
+                render_canvases();
+            });
+            let _ = win.request_animation_frame(cb.unchecked_ref());
+        } else {
+            raf_pending.set_value(false);
+            render_canvases();
         }
     });
 

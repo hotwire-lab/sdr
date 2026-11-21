@@ -9,16 +9,17 @@ use crate::components::sdr_control_bar::SdrControlBar;
 use crate::components::sdr_spectrum_waterfall::SdrSpectrumWaterfall;
 use crate::components::top_toolbar::TopToolbar;
 use crate::components::wideband_scanner_modal::WidebandScannerModal;
-use crate::dsp::sdr_dsp::{update_spectrum_traces, DspProcessOptions, SpectrumTraceState};
+use crate::dsp::sdr_dsp::{
+    update_spectrum_traces_in_place, DspProcessOptions, SpectrumTraceState,
+};
 use crate::protocol::codec::{
     build_sdr_stream_ctrl_cmd, build_sdr_sweep_cfg_cmd, build_sdr_tune_cmd, clamp_sdr_freq_mhz,
     resolve_sdr_rate_preset,
 };
 use crate::protocol::demuxer::ProtocolDemuxer;
 use crate::protocol::types::{
-    BoardCapabilitiesFrame, DecodedFrame, SdrRawIqFrame, SdrSpectrumFrame, SDR_DSP_FLAG_DC_CANCEL,
-    SDR_DSP_FLAG_MAX_HOLD, SDR_STREAM_CONT_IQ, SDR_STREAM_FFT, SDR_STREAM_SINGLE_IQ,
-    SDR_STREAM_STOP,
+    DecodedFrame, SdrRawIqFrame, SdrSpectrumFrame, SDR_DSP_FLAG_DC_CANCEL, SDR_DSP_FLAG_MAX_HOLD,
+    SDR_STREAM_CONT_IQ, SDR_STREAM_FFT, SDR_STREAM_SINGLE_IQ, SDR_STREAM_STOP,
 };
 use crate::transport::serial::{create_sdr_transport, TransportKind, TransportSnapshot};
 
@@ -35,7 +36,6 @@ pub fn App() -> impl IntoView {
 
     let transport = RwSignal::new(serial_transport.with_value(|t| t.snapshot()));
     let identity = RwSignal::new(None::<BoardIdentity>);
-    let caps = RwSignal::new(None::<BoardCapabilitiesFrame>);
     let mismatch = RwSignal::new(None::<FirmwareMismatch>);
     let flasher_mismatch = RwSignal::new(None::<FirmwareMismatch>);
     let handshake_guard = StoredValue::new_local(HandshakeGuard::new(ToolId::Sdr));
@@ -87,7 +87,6 @@ pub fn App() -> impl IntoView {
                     sdr_streaming.set(false);
                     streaming_cont_iq.set(false);
                     identity.set(None);
-                    caps.set(None);
                     demuxer.update_value(|d| d.reset());
                 } else if is_usb {
                     mismatch.set(None);
@@ -110,7 +109,7 @@ pub fn App() -> impl IntoView {
                     d.feed(
                         bytes,
                         |frame| match frame {
-                            DecodedFrame::Capabilities(id, c) => {
+                            DecodedFrame::Capabilities(id, _c) => {
                                 if transport.get_untracked().status.is_usb_connected() {
                                     let mut verdict = Ok(());
                                     handshake_guard.update_value(|g| {
@@ -128,7 +127,6 @@ pub fn App() -> impl IntoView {
                                 mismatch.set(None);
                                 flasher_mismatch.set(None);
                                 identity.set(Some(id));
-                                caps.set(Some(c));
                             }
                             DecodedFrame::SdrSpectrum(spec) => {
                                 let now = perf_now();
@@ -171,13 +169,13 @@ pub fn App() -> impl IntoView {
                                 };
 
                                 sdr_trace.update(|prev| {
-                                    *prev = Some(update_spectrum_traces(
+                                    update_spectrum_traces_in_place(
+                                        prev,
                                         &spec.power_dbfs,
                                         spec.center_freq_mhz as f64,
                                         spec.span_mhz,
-                                        prev.as_ref(),
                                         opts,
-                                    ));
+                                    );
                                 });
                                 latest_sdr_frame.set(Some(spec));
                                 sdr_frame_version.update(|v| *v += 1);
@@ -251,7 +249,14 @@ pub fn App() -> impl IntoView {
         Signal::derive(move || resolve_sdr_rate_preset(sdr_rate_bw_code.get()).span_mhz);
 
     let on_connect = Callback::new(move |_| serial_transport.with_value(|t| t.connect_usb()));
-    let on_disconnect = Callback::new(move |_| serial_transport.with_value(|t| t.disconnect()));
+    let on_disconnect = Callback::new(move |_| {
+        if sdr_streaming.get_untracked() || streaming_cont_iq.get_untracked() {
+            sdr_streaming.set(false);
+            streaming_cont_iq.set(false);
+            send_sdr_stream_ctrl(SDR_STREAM_STOP, sdr_fft_log2.get_untracked());
+        }
+        serial_transport.with_value(|t| t.disconnect());
+    });
     let on_start_demo = Callback::new(move |_| serial_transport.with_value(|t| t.start_demo()));
 
     let on_toggle_sdr_stream = Callback::new(move |_| {
