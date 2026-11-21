@@ -4,6 +4,7 @@
 [![Live Web App](https://img.shields.io/badge/Live_Web_App-GitHub_Pages-0ea5e9?logo=googlechrome&logoColor=white)](https://kavierim.github.io/HotWire-SDR/)
 [![Hardware](https://img.shields.io/badge/Hardware-XIAO_ESP32--S3_%2F_C6-10b981)](https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html)
 [![Web Serial & WebUSB](https://img.shields.io/badge/USB-Web_Serial_%2F_WebUSB-8b5cf6)](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API)
+[![Rust + WASM](https://img.shields.io/badge/Stack-Rust_%2B_Leptos_WASM-f97316?logo=rust&logoColor=white)](https://leptos.dev/)
 
 Turn a **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** into a real-time **1.84–2.79 GHz RF Spectrum Analyzer**, **Wideband Scanner**, **scrolling Waterfall**, and **Raw Baseband I/Q Receiver** directly in your browser — **zero drivers, zero desktop install**.
 
