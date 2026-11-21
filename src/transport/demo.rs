@@ -82,67 +82,73 @@ impl DemoSimulator {
         let mut outputs: Vec<Vec<u8>> = Vec::new();
 
         if bytes.len() >= 8 && bytes[0] == PROTOCOL_SYNC_0 && bytes[1] == PROTOCOL_SYNC_1 {
-            let cmd_id = bytes[2];
-            let p1 = bytes[3];
-            let p2 = bytes[4];
-            let p3 = bytes[5];
-            let p4 = bytes[6];
+            let mut timer_action: Option<bool> = None;
+            let mut pos = 0usize;
+            while pos + 8 <= bytes.len()
+                && bytes[pos] == PROTOCOL_SYNC_0
+                && bytes[pos + 1] == PROTOCOL_SYNC_1
+            {
+                let cmd_id = bytes[pos + 2];
+                let p1 = bytes[pos + 3];
+                let p2 = bytes[pos + 4];
+                let p3 = bytes[pos + 5];
+                let p4 = bytes[pos + 6];
 
-            match cmd_id {
-                CMD_PING_STATUS | CMD_GET_CAPS => {
-                    outputs.push(self.build_caps_frame());
-                    return (outputs, None);
-                }
-                CMD_SDR_TUNE => {
-                    let req_freq = u16::from_le_bytes([p1, p2]) as i32;
-                    self.center_mhz = clamp_sdr_freq_mhz(req_freq);
-                    self.rate_bw_code = p3 & 0x03;
-                    self.gain_index = p4;
-                    return (outputs, None);
-                }
-                CMD_SDR_SWEEP_CFG => {
-                    let start_freq = u16::from_le_bytes([p1, p2]) as i32;
-                    self.sweep_start_mhz = clamp_sdr_freq_mhz(start_freq);
-                    self.sweep_steps = p3;
-                    self.sweep_dwell = p4.max(1);
-                    self.sweep_step_idx = 0;
-                    self.sweep_dwell_counter = 0;
-                    if p3 > 0 {
-                        self.center_mhz = self.sweep_start_mhz;
+                match cmd_id {
+                    CMD_PING_STATUS | CMD_GET_CAPS => {
+                        outputs.push(self.build_caps_frame());
                     }
-                    return (outputs, None);
-                }
-                CMD_SDR_STREAM_CTRL => {
-                    self.stream_mode = p1;
-                    if p1 == SDR_STREAM_SINGLE_IQ {
-                        self.iq_kb = p2.clamp(1, 16);
-                        self.dsp_flags = p3;
-                        outputs.push(self.generate_raw_iq_frame());
+                    CMD_SDR_TUNE => {
+                        let req_freq = u16::from_le_bytes([p1, p2]) as i32;
+                        self.center_mhz = clamp_sdr_freq_mhz(req_freq);
+                        self.rate_bw_code = p3 & 0x03;
+                        self.gain_index = p4;
+                    }
+                    CMD_SDR_SWEEP_CFG => {
+                        let start_freq = u16::from_le_bytes([p1, p2]) as i32;
+                        self.sweep_start_mhz = clamp_sdr_freq_mhz(start_freq);
+                        self.sweep_steps = p3;
+                        self.sweep_dwell = p4.max(1);
+                        self.sweep_step_idx = 0;
+                        self.sweep_dwell_counter = 0;
+                        if p3 > 0 {
+                            self.center_mhz = self.sweep_start_mhz;
+                        }
+                    }
+                    CMD_SDR_STREAM_CTRL => {
+                        self.stream_mode = p1;
+                        if p1 == SDR_STREAM_SINGLE_IQ {
+                            self.iq_kb = p2.clamp(1, 16);
+                            self.dsp_flags = p3;
+                            outputs.push(self.generate_raw_iq_frame());
+                            self.stream_mode = SDR_STREAM_STOP;
+                            timer_action = Some(false);
+                        } else if p1 == SDR_STREAM_STOP {
+                            timer_action = Some(false);
+                        } else {
+                            if p1 == SDR_STREAM_CONT_IQ {
+                                self.iq_kb = p2.clamp(1, 16);
+                            } else {
+                                self.fft_log2 = p2.clamp(8, 11);
+                            }
+                            self.dsp_flags = p3;
+                            self.target_fps = if p4 == 0 { 20 } else { p4.clamp(5, 60) };
+                            timer_action = Some(true);
+                        }
+                    }
+                    CMD_BOOTLOADER => {
                         self.stream_mode = SDR_STREAM_STOP;
-                        return (outputs, Some(false));
+                        outputs.push(
+                            b"\r\n\x1b[33m[Demo] Simulated 0xF0 CMD_BOOTLOADER received.\x1b[0m\r\n"
+                                .to_vec(),
+                        );
+                        timer_action = Some(false);
                     }
-                    if p1 == SDR_STREAM_STOP {
-                        return (outputs, Some(false));
-                    }
-                    if p1 == SDR_STREAM_CONT_IQ {
-                        self.iq_kb = p2.clamp(1, 16);
-                    } else {
-                        self.fft_log2 = p2.clamp(8, 11);
-                    }
-                    self.dsp_flags = p3;
-                    self.target_fps = if p4 == 0 { 20 } else { p4.clamp(5, 60) };
-                    return (outputs, Some(true));
+                    _ => {}
                 }
-                CMD_BOOTLOADER => {
-                    self.stream_mode = SDR_STREAM_STOP;
-                    outputs.push(
-                        b"\r\n\x1b[33m[Demo] Simulated 0xF0 CMD_BOOTLOADER received.\x1b[0m\r\n"
-                            .to_vec(),
-                    );
-                    return (outputs, Some(false));
-                }
-                _ => {}
+                pos += 8;
             }
+            return (outputs, timer_action);
         }
 
         if let Ok(text) = std::str::from_utf8(bytes) {

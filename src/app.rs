@@ -74,6 +74,40 @@ pub fn App() -> impl IntoView {
     let last_frame_ts = StoredValue::new(0.0f64);
     let demuxer = StoredValue::new_local(ProtocolDemuxer::new());
 
+    let send_sdr_tune = move |freq_mhz: u16, bw_code: u8, gain: u8| {
+        if !transport.get_untracked().status.is_active() {
+            return;
+        }
+        let cmd = build_sdr_tune_cmd(freq_mhz as i32, bw_code, gain as i32);
+        serial_transport.with_value(|t| t.send_bytes(&cmd));
+    };
+
+    let build_dsp_flags = move || -> u8 {
+        let mut flags = 0u8;
+        if sdr_max_hold_detector.get_untracked() {
+            flags |= SDR_DSP_FLAG_MAX_HOLD;
+        }
+        if sdr_dc_notch.get_untracked() {
+            flags |= SDR_DSP_FLAG_DC_CANCEL;
+        }
+        let sw = sdr_sub_windows.get_untracked().clamp(1, 16);
+        flags |= ((sw - 1) & 0x0f) << 4;
+        flags
+    };
+
+    let send_sdr_stream_ctrl = move |mode: u8, size_param: u8| {
+        if !transport.get_untracked().status.is_active() {
+            return;
+        }
+        let cmd = build_sdr_stream_ctrl_cmd(
+            mode,
+            size_param,
+            build_dsp_flags(),
+            sdr_target_fps.get_untracked(),
+        );
+        serial_transport.with_value(|t| t.send_bytes(&cmd));
+    };
+
     // Initialize transport listeners
     serial_transport.with_value(|st| {
         st.init(
@@ -87,6 +121,8 @@ pub fn App() -> impl IntoView {
                     sdr_streaming.set(false);
                     streaming_cont_iq.set(false);
                     identity.set(None);
+                    sdr_fps.set(0.0);
+                    last_frame_ts.set_value(0.0);
                     demuxer.update_value(|d| d.reset());
                 } else if is_usb {
                     mismatch.set(None);
@@ -127,7 +163,18 @@ pub fn App() -> impl IntoView {
                                 }
                                 mismatch.set(None);
                                 flasher_mismatch.set(None);
+                                drawer_open.set(false);
                                 identity.set(Some(id));
+                                // Auto-start live RF spectrum streaming on verified connect (matching Oscilloscope)
+                                send_sdr_tune(
+                                    sdr_center_freq_mhz.get_untracked(),
+                                    sdr_rate_bw_code.get_untracked(),
+                                    sdr_gain_index.get_untracked(),
+                                );
+                                sdr_streaming.set(true);
+                                streaming_cont_iq.set(false);
+                                last_frame_ts.set_value(0.0);
+                                send_sdr_stream_ctrl(SDR_STREAM_FFT, sdr_fft_log2.get_untracked());
                             }
                             DecodedFrame::SdrSpectrum(spec) => {
                                 let now = perf_now();
@@ -193,40 +240,6 @@ pub fn App() -> impl IntoView {
             },
         );
     });
-
-    let send_sdr_tune = move |freq_mhz: u16, bw_code: u8, gain: u8| {
-        if !transport.get_untracked().status.is_active() {
-            return;
-        }
-        let cmd = build_sdr_tune_cmd(freq_mhz as i32, bw_code, gain as i32);
-        serial_transport.with_value(|t| t.send_bytes(&cmd));
-    };
-
-    let build_dsp_flags = move || -> u8 {
-        let mut flags = 0u8;
-        if sdr_max_hold_detector.get_untracked() {
-            flags |= SDR_DSP_FLAG_MAX_HOLD;
-        }
-        if sdr_dc_notch.get_untracked() {
-            flags |= SDR_DSP_FLAG_DC_CANCEL;
-        }
-        let sw = sdr_sub_windows.get_untracked().clamp(1, 16);
-        flags |= ((sw - 1) & 0x0f) << 4;
-        flags
-    };
-
-    let send_sdr_stream_ctrl = move |mode: u8, size_param: u8| {
-        if !transport.get_untracked().status.is_active() {
-            return;
-        }
-        let cmd = build_sdr_stream_ctrl_cmd(
-            mode,
-            size_param,
-            build_dsp_flags(),
-            sdr_target_fps.get_untracked(),
-        );
-        serial_transport.with_value(|t| t.send_bytes(&cmd));
-    };
 
     // Re-send stream ctrl when DSP/FFT/FPS settings change while streaming
     Effect::new(move |_| {
