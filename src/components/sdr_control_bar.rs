@@ -31,6 +31,18 @@ pub fn SdrControlBar(
     on_open_scanner: Callback<()>,
 ) -> impl IntoView {
     let show_dsp = RwSignal::new(false);
+    let mobile_controls_open = RwSignal::new(false);
+
+    // Trigger canvas resize when collapsible control drawers open/close
+    Effect::new(move |_| {
+        let _m = mobile_controls_open.get();
+        let _d = show_dsp.get();
+        if let Some(win) = web_sys::window() {
+            if let Ok(ev) = web_sys::Event::new("resize") {
+                let _ = win.dispatch_event(&ev);
+            }
+        }
+    });
 
     let step_freq = move |delta: i32| {
         let cur = center_freq_mhz.get_untracked() as i32;
@@ -56,7 +68,75 @@ pub fn SdrControlBar(
     };
 
     view! {
-        <section class="sdr-control-bar" aria-label="RF Tuner and DSP Controls">
+        <section
+            class=move || {
+                if mobile_controls_open.get() {
+                    "sdr-control-bar mobile-expanded"
+                } else {
+                    "sdr-control-bar"
+                }
+            }
+            aria-label="RF Tuner and DSP Controls"
+        >
+            <div class="sdr-mobile-compact-row" aria-label="Compact Mobile Frequency Tuner">
+                <button
+                    type="button"
+                    class="btn-step"
+                    on:click=move |ev: web_sys::MouseEvent| {
+                        step_freq(if ev.shift_key() { -10 } else { -1 });
+                    }
+                    disabled=move || !connected.get() || center_freq_mhz.get() <= SDR_MIN_FREQ_MHZ
+                    title="Step -1 MHz (Shift: -10 MHz)"
+                    aria-label="Step frequency down"
+                >
+                    "−"
+                </button>
+
+                <div class="mobile-freq-readout">
+                    <span class="mobile-freq-val">{move || center_freq_mhz.get()}</span>
+                    <span class="mobile-freq-unit">"MHz"</span>
+                    <span class="mobile-freq-preset">{preset_label}</span>
+                    <Show when=move || adc_clip.get()>
+                        <span class="clip-alert-badge" title="ADC Clipping! Lower manual gain.">
+                            "CLIP"
+                        </span>
+                    </Show>
+                </div>
+
+                <button
+                    type="button"
+                    class="btn-step"
+                    on:click=move |ev: web_sys::MouseEvent| {
+                        step_freq(if ev.shift_key() { 10 } else { 1 });
+                    }
+                    disabled=move || !connected.get() || (center_freq_mhz.get() >= SDR_MAX_FREQ_MHZ)
+                    title="Step +1 MHz (Shift: +10 MHz)"
+                    aria-label="Step frequency up"
+                >
+                    "+"
+                </button>
+
+                <button
+                    type="button"
+                    class=move || {
+                        if mobile_controls_open.get() {
+                            "btn btn-secondary btn-compact btn-mobile-controls active"
+                        } else {
+                            "btn btn-secondary btn-compact btn-mobile-controls"
+                        }
+                    }
+                    aria-expanded=move || mobile_controls_open.get().to_string()
+                    on:click=move |_| mobile_controls_open.update(|v| *v = !*v)
+                    title="Show or hide band, gain, tuner slider, and DSP controls"
+                >
+                    <span>"Controls"</span>
+                    <span class="expand-indicator">
+                        {move || if mobile_controls_open.get() { "▲" } else { "▼" }}
+                    </span>
+                </button>
+            </div>
+
+            <div class="sdr-collapsible-controls">
             <div class="sdr-primary-row">
                 <div class="control-group">
                     <label for="sdr-span">"Span"</label>
@@ -438,6 +518,7 @@ pub fn SdrControlBar(
                     </div>
                 </div>
             </Show>
+            </div>
         </section>
     }
 }
