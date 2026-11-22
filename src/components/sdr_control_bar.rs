@@ -8,6 +8,7 @@ use crate::protocol::types::{
 #[component]
 pub fn SdrControlBar(
     connected: Signal<bool>,
+    mobile_controls_open: RwSignal<bool>,
     center_freq_mhz: RwSignal<u16>,
     on_center_freq_change: Callback<u16>,
     rate_bw_code: RwSignal<u8>,
@@ -31,7 +32,6 @@ pub fn SdrControlBar(
     on_open_scanner: Callback<()>,
 ) -> impl IntoView {
     let show_dsp = RwSignal::new(false);
-    let mobile_controls_open = RwSignal::new(false);
 
     // Trigger canvas resize when collapsible control drawers open/close
     Effect::new(move |_| {
@@ -131,7 +131,7 @@ pub fn SdrControlBar(
                 >
                     <span>"Controls"</span>
                     <span class="expand-indicator">
-                        {move || if mobile_controls_open.get() { "▲" } else { "▼" }}
+                        {move || if mobile_controls_open.get() { "▼" } else { "▲" }}
                     </span>
                 </button>
             </div>

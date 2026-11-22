@@ -69,6 +69,7 @@ pub fn App() -> impl IntoView {
     let raw_iq_kb = RwSignal::new(2u8);
     let streaming_cont_iq = RwSignal::new(false);
     let drawer_open = RwSignal::new(false);
+    let mobile_controls_open = RwSignal::new(false);
 
     let clear_next_peak = StoredValue::new(false);
     let last_frame_ts = StoredValue::new(0.0f64);
@@ -436,7 +437,13 @@ pub fn App() -> impl IntoView {
 
     view! {
         <HotWireTheme />
-        <div class="app-shell">
+        <div class=move || {
+            if mobile_controls_open.get() {
+                "app-shell sdr-mobile-controls-open"
+            } else {
+                "app-shell"
+            }
+        }>
             <TopToolbar
                 transport=transport
                 identity=identity
@@ -452,6 +459,7 @@ pub fn App() -> impl IntoView {
             <main class="main-workspace sdr-only-workspace">
                 <SdrControlBar
                     connected=connected
+                    mobile_controls_open=mobile_controls_open
                     center_freq_mhz=sdr_center_freq_mhz
                     on_center_freq_change=on_center_freq_change
                     rate_bw_code=sdr_rate_bw_code

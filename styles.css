@@ -1241,25 +1241,39 @@ input[type='text']:focus {
    ========================================================================== */
 
 @media (max-width: 768px), (max-height: 500px) {
+  .app-shell {
+    padding-bottom: 0;
+  }
+
+  /* Put Spectrum & Waterfall above the thumb-friendly bottom tuner bar */
+  .sdr-visualizer {
+    order: 1;
+  }
+
   .sdr-control-bar {
-    padding: 6px 10px;
+    order: 2;
+    border-bottom: none;
+    border-top: 1px solid var(--border-subtle);
+    padding: 6px 10px max(6px, env(safe-area-inset-bottom));
     gap: 6px;
   }
 
-  /* Show 1-row compact tuner + collapse/expand toggle */
+  /* Show 1-row compact tuner anchored at the bottom + upward expand toggle */
   .sdr-mobile-compact-row {
     display: flex;
+    order: 2;
   }
 
   /* Collapse secondary band/gain/slider/DSP drawer until user expands */
   .sdr-collapsible-controls {
     display: none;
+    order: 1;
   }
 
   .sdr-control-bar.mobile-expanded .sdr-collapsible-controls {
     display: flex;
-    padding-top: 6px;
-    border-top: 1px solid var(--border-subtle);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
     max-height: 44dvh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -1331,11 +1345,13 @@ input[type='text']:focus {
   }
 
   .sdr-hud-bar {
+    display: none;
     padding: 4px 8px;
     min-height: 40px;
   }
 
   .waterfall-toolbar {
+    display: none;
     padding: 4px 8px;
     gap: 8px;
     flex-wrap: nowrap;
@@ -1343,6 +1359,11 @@ input[type='text']:focus {
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
     min-height: 42px;
+  }
+
+  .app-shell.sdr-mobile-controls-open .sdr-hud-bar,
+  .app-shell.sdr-mobile-controls-open .waterfall-toolbar {
+    display: flex;
   }
 
   .wf-spacer {
