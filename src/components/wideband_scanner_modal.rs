@@ -324,49 +324,68 @@ pub fn WidebandScannerModal(
         let draw_buckets =
             |arr: &[f32], stroke: &str, lw: f64, fill_grad: bool, dashed: bool| {
                 ctx.save();
-                ctx.begin_path();
-                let mut started = false;
-                let mut first_x = PAD_LEFT;
-                let mut last_x = PAD_LEFT;
+                let grad = if fill_grad {
+                    let g = ctx.create_linear_gradient(0.0, PAD_TOP, 0.0, PAD_TOP + plot_h);
+                    let _ = g.add_color_stop(0.0, "rgba(52, 211, 153, 0.25)");
+                    let _ = g.add_color_stop(1.0, "rgba(52, 211, 153, 0.01)");
+                    Some(g)
+                } else {
+                    None
+                };
+
+                let mut seg_start: Option<usize> = None;
+                let flush_segment = |start: usize, end: usize| {
+                    if end <= start {
+                        return;
+                    }
+                    ctx.begin_path();
+                    let mut first_x = PAD_LEFT;
+                    let mut last_x = PAD_LEFT;
+                    for (idx, &val) in arr.iter().enumerate().take(end).skip(start) {
+                        let freq = SDR_MIN_FREQ_MHZ as f64 + (idx as f64 + 0.5) * BUCKET_RES_MHZ;
+                        let x = freq_to_x(freq);
+                        let y = db_to_y(val as f64);
+                        if idx == start {
+                            ctx.move_to(x, y);
+                            first_x = x;
+                        } else {
+                            ctx.line_to(x, y);
+                        }
+                        last_x = x;
+                    }
+                    if dashed {
+                        let dash = js_sys::Array::new();
+                        dash.push(&4.0.into());
+                        dash.push(&3.0.into());
+                        let _ = ctx.set_line_dash(&dash);
+                    }
+                    ctx.set_stroke_style_str(stroke);
+                    ctx.set_line_width(lw);
+                    ctx.stroke();
+
+                    if let Some(ref g) = grad {
+                        if last_x > first_x {
+                            let _ = ctx.set_line_dash(&js_sys::Array::new());
+                            ctx.line_to(last_x, PAD_TOP + plot_h);
+                            ctx.line_to(first_x, PAD_TOP + plot_h);
+                            ctx.close_path();
+                            ctx.set_fill_style_canvas_gradient(g);
+                            ctx.fill();
+                        }
+                    }
+                };
 
                 for (b, &val) in arr.iter().enumerate() {
                     if val.is_nan() {
-                        started = false;
-                        continue;
+                        if let Some(s) = seg_start.take() {
+                            flush_segment(s, b);
+                        }
+                    } else if seg_start.is_none() {
+                        seg_start = Some(b);
                     }
-                    let freq = SDR_MIN_FREQ_MHZ as f64 + (b as f64 + 0.5) * BUCKET_RES_MHZ;
-                    let x = freq_to_x(freq);
-                    let y = db_to_y(val as f64);
-                    if !started {
-                        ctx.move_to(x, y);
-                        first_x = x;
-                        started = true;
-                    } else {
-                        ctx.line_to(x, y);
-                    }
-                    last_x = x;
                 }
-
-                if dashed {
-                    let dash = js_sys::Array::new();
-                    dash.push(&4.0.into());
-                    dash.push(&3.0.into());
-                    let _ = ctx.set_line_dash(&dash);
-                }
-                ctx.set_stroke_style_str(stroke);
-                ctx.set_line_width(lw);
-                ctx.stroke();
-
-                if fill_grad && last_x > first_x {
-                    let _ = ctx.set_line_dash(&js_sys::Array::new());
-                    ctx.line_to(last_x, PAD_TOP + plot_h);
-                    ctx.line_to(first_x, PAD_TOP + plot_h);
-                    ctx.close_path();
-                    let grad = ctx.create_linear_gradient(0.0, PAD_TOP, 0.0, PAD_TOP + plot_h);
-                    let _ = grad.add_color_stop(0.0, "rgba(52, 211, 153, 0.25)");
-                    let _ = grad.add_color_stop(1.0, "rgba(52, 211, 153, 0.01)");
-                    ctx.set_fill_style_canvas_gradient(&grad);
-                    ctx.fill();
+                if let Some(s) = seg_start {
+                    flush_segment(s, arr.len());
                 }
                 ctx.restore();
             };

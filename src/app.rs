@@ -121,6 +121,10 @@ pub fn App() -> impl IntoView {
                     handshake_guard.update_value(|g| g.cancel());
                     sdr_streaming.set(false);
                     streaming_cont_iq.set(false);
+                    sdr_sweep_enabled.set(false);
+                    sdr_adc_clip.set(false);
+                    sdr_capture_truncated.set(false);
+                    sdr_lo_div_active.set(false);
                     identity.set(None);
                     sdr_fps.set(0.0);
                     last_frame_ts.set_value(0.0);
@@ -340,6 +344,8 @@ pub fn App() -> impl IntoView {
         if transport.get_untracked().status.is_active()
             && raw_iq_frame.get_untracked().is_none()
         {
+            streaming_cont_iq.set(false);
+            sdr_streaming.set(false);
             send_sdr_tune(
                 sdr_center_freq_mhz.get_untracked(),
                 sdr_rate_bw_code.get_untracked(),
@@ -403,6 +409,7 @@ pub fn App() -> impl IntoView {
 
     let on_close_scanner = Callback::new(move |_| {
         scanner_open.set(false);
+        clear_next_peak.set_value(true);
         if transport.get_untracked().status.is_active() {
             send_sdr_tune(
                 sdr_center_freq_mhz.get_untracked(),

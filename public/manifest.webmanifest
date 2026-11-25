@@ -1,7 +1,7 @@
 {
   "name": "HotWire SDR — 1.84–2.79 GHz RF Spectrum Analyzer",
   "short_name": "HotWire SDR",
-  "description": "Dedicated 1.84–2.79 GHz RF Spectrum Analyzer, Waterfall, and Raw I/Q Receiver PWA for Seeed Studio XIAO ESP32-S3 via Web Serial.",
+  "description": "1.84–2.79 GHz RF Spectrum Analyzer, Wideband Scanner, Waterfall, and Raw I/Q Receiver PWA for Seeed Studio XIAO ESP32-S3 and XIAO ESP32-C6 via Web Serial and WebUSB.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

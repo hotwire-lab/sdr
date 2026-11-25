@@ -609,7 +609,7 @@ pub fn SdrSpectrumWaterfall(
             dragging_marker.set_value(DraggingMarker::M1);
         } else if cur_m2.active && (click_freq - cur_m2.freq_mhz).abs() < hit_tol {
             dragging_marker.set_value(DraggingMarker::M2);
-        } else if ev.shift_key() || (cur_m1.active && !cur_m2.active && ev.button() == 2) {
+        } else if ev.shift_key() || ev.button() == 2 {
             m2.set(MarkerState {
                 freq_mhz: click_freq,
                 active: true,

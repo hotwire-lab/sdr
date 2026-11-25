@@ -28,6 +28,7 @@
 #include "esp_heap_caps.h"
 #include "esp_rom_sys.h"
 #include "esp_system.h"
+#include "soc/lp_aon_reg.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_phy_init.h"
@@ -802,6 +803,8 @@ static void handleEnterBootloader(uint8_t p1, uint8_t p2, uint8_t p3, uint8_t p4
   if (p1 != 0xB0 || p2 != 0x07 || p3 != 0x10 || p4 != 0xAD) return;
   sdrCfg.streamMode = SDR_STREAM_STOP;
   delay(20);
+  REG_SET_BIT(LP_AON_SYS_CFG_REG, LP_AON_FORCE_DOWNLOAD_BOOT);
+  delay(10);
   esp_restart();
 }
 
