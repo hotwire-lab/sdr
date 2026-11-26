@@ -66,7 +66,7 @@ impl DemoSimulator {
     }
 
     pub fn build_caps_frame(&self) -> Vec<u8> {
-        let json = br#"{"board":"XIAO-ESP32-S3","firmware":"2.0.0-sdr-demo","sdr":true}"#;
+        let json = br#"{"board":"XIAO-ESP32-S3","firmware":"2.1.0-sdr-demo","sdr":true,"max_iq_kb":4}"#;
         encode_response_frame(TYPE_BOARD_CAPABILITIES, json)
     }
 

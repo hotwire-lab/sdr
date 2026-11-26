@@ -67,7 +67,7 @@ extern "C" {
 // Hardware Constants (XIAO ESP32-S3)
 // -----------------------------------------------------------------------------
 
-#define HOTWIRE_FW_VERSION "2.0.0-sdr"
+#define HOTWIRE_FW_VERSION "2.1.0-sdr"
 #define HOTWIRE_BOARD_NAME "XIAO-ESP32-S3"
 
 static const char* const BOARD_NAME = HOTWIRE_BOARD_NAME;
@@ -243,7 +243,7 @@ static void sendBinaryFrame(uint8_t typeId, const uint8_t* payload, uint16_t pay
 
 static void sendCapabilitiesFrame() {
   static const char CAPS_JSON[] =
-    "{\"board\":\"XIAO-ESP32-S3\",\"firmware\":\"" HOTWIRE_FW_VERSION "\",\"sdr\":true}";
+    "{\"board\":\"XIAO-ESP32-S3\",\"firmware\":\"" HOTWIRE_FW_VERSION "\",\"sdr\":true,\"max_iq_kb\":8}";
   sendBinaryFrame(TYPE_BOARD_CAPABILITIES, (const uint8_t*)CAPS_JSON, (uint16_t)(sizeof(CAPS_JSON) - 1));
 }
 
@@ -780,7 +780,11 @@ static void Engine_Core1_Task(void* arg) {
       if (sweepDwellCnt >= (cfg.sweepDwellFrames < 1 ? 1 : cfg.sweepDwellFrames)) {
         sweepDwellCnt = 0;
         sweepIdx = (uint8_t)((sweepIdx + 1U) % cfg.sweepSteps);
-        uint16_t nextFreq = (uint16_t)(cfg.sweepStartMhz + sweepIdx * 40U);
+        const uint8_t stepMhz = (cfg.rateBwCode == 0U) ? 80U
+                              : (cfg.rateBwCode == 1U) ? 40U
+                              : (cfg.rateBwCode == 2U) ? 20U
+                              : 16U;
+        uint16_t nextFreq = (uint16_t)(cfg.sweepStartMhz + sweepIdx * stepMhz);
         if (nextFreq > SDR_MAX_FREQ_MHZ) nextFreq = SDR_MIN_FREQ_MHZ;
         sdrApplyTune(nextFreq, cfg.rateBwCode, cfg.gainIndex);
       }
@@ -852,6 +856,13 @@ static void dispatchBinaryCommand(const uint8_t* frame) {
       sdrCfg.sweepStartMhz = startFreq;
       sdrCfg.sweepSteps = p3;
       sdrCfg.sweepDwellFrames = p4;
+      if (p3 > 0) {
+        // Begin on the first sweep step instead of emitting one frame at the
+        // previous tune before advancing.
+        sdrCfg.centerFreqMhz = startFreq;
+        sdrTuneDirty = true;
+        if (core1TaskHandle != nullptr) xTaskNotifyGive(core1TaskHandle);
+      }
       break;
     }
     case CMD_BOOTLOADER:

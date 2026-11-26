@@ -16,7 +16,7 @@ Turn a **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** into a real-time **1.
 
 1. Plug your **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** (with external U.FL antenna connected) into USB.
 2. Open **[https://hotwire-lab.github.io/sdr/](https://hotwire-lab.github.io/sdr/)** in **Chrome**, **Edge**, or **Opera** (Desktop or Android).
-3. Click **⚡ Flasher** (top right), choose your board (`XIAO ESP32-S3 (8MB)` or `XIAO ESP32-C6 (4MB)`), and click **Flash Firmware** to program the bundled SDR firmware (`v2.0.0+`) directly from your browser via **`esptool-js`**.
+3. Click **⚡ Flasher** (top right), choose your board (`XIAO ESP32-S3 (8MB)` or `XIAO ESP32-C6 (4MB)`), and click **Flash Firmware** to program the bundled SDR firmware (`v2.1.0+`) directly from your browser via **`esptool-js`**.
    * If a board running another HotWire firmware (e.g., Oscilloscope or Logic Analyzer) or an outdated version is connected, the app automatically disconnects and shows a one-click **Flash Firmware** prompt.
 4. Click **Start RF** — or open **Scanner** to sweep the entire **1.84–2.79 GHz** band at once.
 
@@ -30,7 +30,7 @@ Turn a **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** into a real-time **1.
 ## Features
 
 - **Unified HotWire Shell (`hotwire-core`):**
-  - Top toolbar with instant **Logic / Scope / SDR / Serial** tool switcher, automatic `0x83` target software & version verification (`v2.0.0+`), swipeable mobile **BottomSheet** Web Flasher, and Web Serial (Desktop) / WebUSB (Android) auto-reconnect.
+  - Top toolbar with instant **Logic / Scope / SDR / Serial** tool switcher, automatic `0x83` target software & version verification (`v2.1.0+`), swipeable mobile **BottomSheet** Web Flasher, and Web Serial (Desktop) / WebUSB (Android) auto-reconnect.
 - **1.84–2.79 GHz Wideband RF Receiver (`RF Dump Engine`):**
   - Direct baseband I/Q capture via internal SRAM (`0x3FCD0000` on ESP32-S3, `0x40840000` on ESP32-C6).
   - Continuous RFPLL tuning (`2210–2790 MHz` direct VCO, plus `1842–2209 MHz` via `5/6` LO divider in I2C block `0x63` on S3 / `0x62` on C6).
@@ -44,6 +44,7 @@ Turn a **Seeed Studio XIAO ESP32-S3** or **XIAO ESP32-C6** into a real-time **1.
   - Host & hardware DSP options (`DSP` drawer): `FFT` (`256–2048`), `Rate` (`10–60 FPS`), `Mean` vs `Peak` detector, `DC Notch`, `Spur Blanker`, and `0x32` Sweep.
 - **Raw Baseband I/Q Inspector (`0x85`):**
   - Captures single-shot or continuous signed 8-bit I/Q streams for time-domain envelope analysis and 2D constellation visualization.
+  - Snapshot depth is selectable up to `8,192` samples on XIAO ESP32-S3 and `4,096` samples on XIAO ESP32-C6 (firmware limit).
 
 ## HotWire Ecosystem
 

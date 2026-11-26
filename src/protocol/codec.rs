@@ -100,8 +100,7 @@ pub fn decode_sdr_spectrum_frame(payload: &[u8]) -> Option<SdrSpectrumFrame> {
         return None;
     }
 
-    let raw_bytes = payload[8..8 + fft_bins].to_vec();
-    let power_dbfs: Vec<f32> = raw_bytes
+    let power_dbfs: Vec<f32> = payload[8..8 + fft_bins]
         .iter()
         .map(|&b| (b as f32) * 0.5 - 127.5)
         .collect();
@@ -119,7 +118,6 @@ pub fn decode_sdr_spectrum_frame(payload: &[u8]) -> Option<SdrSpectrumFrame> {
         capture_truncated: (status_flags & SDR_FLAG_CAPTURE_TRUNCATED) != 0,
         lo_div_active: (status_flags & SDR_FLAG_LO_DIV_ACTIVE) != 0,
         power_dbfs,
-        raw_bytes,
         timestamp_ms: now_ms(),
     })
 }

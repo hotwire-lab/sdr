@@ -36,6 +36,8 @@ pub fn App() -> impl IntoView {
 
     let transport = RwSignal::new(serial_transport.with_value(|t| t.snapshot()));
     let identity = RwSignal::new(None::<BoardIdentity>);
+    let board_caps = RwSignal::new(None::<crate::protocol::types::BoardCapabilitiesFrame>);
+    let max_iq_kb = RwSignal::new(8u8);
     let mismatch = RwSignal::new(None::<FirmwareMismatch>);
     let flasher_mismatch = RwSignal::new(None::<FirmwareMismatch>);
     let handshake_guard = StoredValue::new_local(HandshakeGuard::new(ToolId::Sdr));
@@ -72,6 +74,9 @@ pub fn App() -> impl IntoView {
     let mobile_controls_open = RwSignal::new(false);
 
     let clear_next_peak = StoredValue::new(false);
+    let scanner_saved_rate_code = StoredValue::new(None::<u8>);
+    let sweep_saved_rate_code = StoredValue::new(None::<u8>);
+    let resume_fft_after_raw_iq = StoredValue::new(false);
     let last_frame_ts = StoredValue::new(0.0f64);
     let demuxer = StoredValue::new_local(ProtocolDemuxer::new());
 
@@ -109,6 +114,21 @@ pub fn App() -> impl IntoView {
         serial_transport.with_value(|t| t.send_bytes(&cmd));
     };
 
+    let resume_fft_stream = move || {
+        if !transport.get_untracked().status.is_active() {
+            return;
+        }
+        send_sdr_tune(
+            sdr_center_freq_mhz.get_untracked(),
+            sdr_rate_bw_code.get_untracked(),
+            sdr_gain_index.get_untracked(),
+        );
+        sdr_streaming.set(true);
+        streaming_cont_iq.set(false);
+        last_frame_ts.set_value(0.0);
+        send_sdr_stream_ctrl(SDR_STREAM_FFT, sdr_fft_log2.get_untracked());
+    };
+
     // Initialize transport listeners
     serial_transport.with_value(|st| {
         st.init(
@@ -122,10 +142,15 @@ pub fn App() -> impl IntoView {
                     sdr_streaming.set(false);
                     streaming_cont_iq.set(false);
                     sdr_sweep_enabled.set(false);
+                    scanner_saved_rate_code.set_value(None);
+                    sweep_saved_rate_code.set_value(None);
+                    resume_fft_after_raw_iq.set_value(false);
                     sdr_adc_clip.set(false);
                     sdr_capture_truncated.set(false);
                     sdr_lo_div_active.set(false);
                     identity.set(None);
+                    board_caps.set(None);
+                    max_iq_kb.set(8);
                     sdr_fps.set(0.0);
                     last_frame_ts.set_value(0.0);
                     demuxer.update_value(|d| d.reset());
@@ -150,7 +175,7 @@ pub fn App() -> impl IntoView {
                     d.feed(
                         bytes,
                         |frame| match frame {
-                            DecodedFrame::Capabilities(id, _c) => {
+                            DecodedFrame::Capabilities(id, c) => {
                                 serial_transport.with_value(|t| t.notify_handshake_ok());
                                 if transport.get_untracked().status.is_usb_connected() {
                                     let mut verdict = Ok(());
@@ -170,6 +195,23 @@ pub fn App() -> impl IntoView {
                                 flasher_mismatch.set(None);
                                 drawer_open.set(false);
                                 identity.set(Some(id));
+                                board_caps.set(Some(c.clone()));
+                                let max_iq = c.max_iq_kb.clamp(1, 16);
+                                max_iq_kb.set(max_iq);
+                                if raw_iq_kb.get_untracked() > max_iq {
+                                    raw_iq_kb.set(max_iq);
+                                }
+                                scanner_saved_rate_code.set_value(None);
+                                sweep_saved_rate_code.set_value(None);
+                                resume_fft_after_raw_iq.set_value(false);
+                                // The firmware keeps its sweep configuration across
+                                // USB reconnects; explicitly return to a clean
+                                // single-tune state before starting the stream.
+                                if transport.get_untracked().status.is_active() {
+                                    let sweep_off = build_sdr_sweep_cfg_cmd(2400, 0, 4);
+                                    serial_transport.with_value(|t| t.send_bytes(&sweep_off));
+                                }
+                                sdr_sweep_enabled.set(false);
                                 // Auto-start live RF spectrum streaming on verified connect (matching Oscilloscope)
                                 send_sdr_tune(
                                     sdr_center_freq_mhz.get_untracked(),
@@ -269,6 +311,16 @@ pub fn App() -> impl IntoView {
 
     let on_connect = Callback::new(move |_| serial_transport.with_value(|t| t.connect_usb()));
     let on_disconnect = Callback::new(move |_| {
+        if sdr_sweep_enabled.get_untracked() {
+            sdr_sweep_enabled.set(false);
+            let cmd = build_sdr_sweep_cfg_cmd(2400, 0, 4);
+            serial_transport.with_value(|t| t.send_bytes(&cmd));
+            let restored = sweep_saved_rate_code
+                .get_value()
+                .unwrap_or(sdr_rate_bw_code.get_untracked());
+            sweep_saved_rate_code.set_value(None);
+            sdr_rate_bw_code.set(restored);
+        }
         if sdr_streaming.get_untracked() || streaming_cont_iq.get_untracked() {
             sdr_streaming.set(false);
             streaming_cont_iq.set(false);
@@ -282,17 +334,24 @@ pub fn App() -> impl IntoView {
         if sdr_streaming.get_untracked() {
             sdr_streaming.set(false);
             streaming_cont_iq.set(false);
+            if sdr_sweep_enabled.get_untracked() {
+                sdr_sweep_enabled.set(false);
+                let cmd = build_sdr_sweep_cfg_cmd(2400, 0, 4);
+                serial_transport.with_value(|t| t.send_bytes(&cmd));
+                let restored = sweep_saved_rate_code
+                    .get_value()
+                    .unwrap_or(sdr_rate_bw_code.get_untracked());
+                sweep_saved_rate_code.set_value(None);
+                sdr_rate_bw_code.set(restored);
+                send_sdr_tune(
+                    sdr_center_freq_mhz.get_untracked(),
+                    restored,
+                    sdr_gain_index.get_untracked(),
+                );
+            }
             send_sdr_stream_ctrl(SDR_STREAM_STOP, sdr_fft_log2.get_untracked());
         } else {
-            send_sdr_tune(
-                sdr_center_freq_mhz.get_untracked(),
-                sdr_rate_bw_code.get_untracked(),
-                sdr_gain_index.get_untracked(),
-            );
-            sdr_streaming.set(true);
-            streaming_cont_iq.set(false);
-            last_frame_ts.set_value(0.0);
-            send_sdr_stream_ctrl(SDR_STREAM_FFT, sdr_fft_log2.get_untracked());
+            resume_fft_stream();
         }
     });
 
@@ -332,19 +391,49 @@ pub fn App() -> impl IntoView {
 
     let on_toggle_sweep = Callback::new(move |_| {
         let next = !sdr_sweep_enabled.get_untracked();
-        sdr_sweep_enabled.set(next);
-        if transport.get_untracked().status.is_active() {
-            let cmd = build_sdr_sweep_cfg_cmd(2400, if next { 4 } else { 0 }, 4);
+        if next {
+            let prev_rate = sdr_rate_bw_code.get_untracked();
+            if prev_rate != 1 {
+                sweep_saved_rate_code.set_value(Some(prev_rate));
+            }
+            sdr_rate_bw_code.set(1);
+            sdr_sweep_enabled.set(true);
+            send_sdr_tune(2400, 1, sdr_gain_index.get_untracked());
+            let cmd = build_sdr_sweep_cfg_cmd(2400, 4, 4);
             serial_transport.with_value(|t| t.send_bytes(&cmd));
+            if !sdr_streaming.get_untracked() {
+                sdr_streaming.set(true);
+                last_frame_ts.set_value(0.0);
+                send_sdr_stream_ctrl(SDR_STREAM_FFT, sdr_fft_log2.get_untracked());
+            }
+        } else {
+            sdr_sweep_enabled.set(false);
+            let cmd = build_sdr_sweep_cfg_cmd(2400, 0, 4);
+            serial_transport.with_value(|t| t.send_bytes(&cmd));
+            let restored = sweep_saved_rate_code
+                .get_value()
+                .unwrap_or(sdr_rate_bw_code.get_untracked());
+            sweep_saved_rate_code.set_value(None);
+            sdr_rate_bw_code.set(restored);
+            send_sdr_tune(
+                sdr_center_freq_mhz.get_untracked(),
+                restored,
+                sdr_gain_index.get_untracked(),
+            );
+            clear_next_peak.set_value(true);
         }
     });
 
     let on_open_raw_iq = Callback::new(move |_| {
         raw_iq_open.set(true);
+        let was_fft_streaming =
+            sdr_streaming.get_untracked() && !streaming_cont_iq.get_untracked();
+        if !streaming_cont_iq.get_untracked() {
+            resume_fft_after_raw_iq.set_value(was_fft_streaming);
+        }
         if transport.get_untracked().status.is_active()
-            && raw_iq_frame.get_untracked().is_none()
+            && !streaming_cont_iq.get_untracked()
         {
-            streaming_cont_iq.set(false);
             sdr_streaming.set(false);
             send_sdr_tune(
                 sdr_center_freq_mhz.get_untracked(),
@@ -357,14 +446,22 @@ pub fn App() -> impl IntoView {
 
     let on_close_raw_iq = Callback::new(move |_| {
         raw_iq_open.set(false);
+        let resume = resume_fft_after_raw_iq.get_value();
+        resume_fft_after_raw_iq.set_value(false);
         if streaming_cont_iq.get_untracked() {
             streaming_cont_iq.set(false);
             sdr_streaming.set(false);
             send_sdr_stream_ctrl(SDR_STREAM_STOP, raw_iq_kb.get_untracked());
         }
+        if resume {
+            resume_fft_stream();
+        }
     });
 
     let on_request_single_iq = Callback::new(move |_| {
+        if sdr_streaming.get_untracked() && !streaming_cont_iq.get_untracked() {
+            resume_fft_after_raw_iq.set_value(true);
+        }
         streaming_cont_iq.set(false);
         sdr_streaming.set(false);
         send_sdr_tune(
@@ -380,7 +477,14 @@ pub fn App() -> impl IntoView {
             streaming_cont_iq.set(false);
             sdr_streaming.set(false);
             send_sdr_stream_ctrl(SDR_STREAM_STOP, raw_iq_kb.get_untracked());
+            if resume_fft_after_raw_iq.get_value() {
+                resume_fft_after_raw_iq.set_value(false);
+                resume_fft_stream();
+            }
         } else {
+            if sdr_streaming.get_untracked() && !streaming_cont_iq.get_untracked() {
+                resume_fft_after_raw_iq.set_value(true);
+            }
             send_sdr_tune(
                 sdr_center_freq_mhz.get_untracked(),
                 sdr_rate_bw_code.get_untracked(),
@@ -395,7 +499,19 @@ pub fn App() -> impl IntoView {
     let on_open_scanner = Callback::new(move |_| {
         scanner_open.set(true);
         if transport.get_untracked().status.is_active() {
-            if sdr_rate_bw_code.get_untracked() != 1 {
+            if sdr_sweep_enabled.get_untracked() {
+                sdr_sweep_enabled.set(false);
+                let cmd = build_sdr_sweep_cfg_cmd(2400, 0, 4);
+                serial_transport.with_value(|t| t.send_bytes(&cmd));
+                let sweep_rate = sweep_saved_rate_code
+                    .get_value()
+                    .unwrap_or(sdr_rate_bw_code.get_untracked());
+                sweep_saved_rate_code.set_value(None);
+                sdr_rate_bw_code.set(sweep_rate);
+            }
+            let cur_rate = sdr_rate_bw_code.get_untracked();
+            if cur_rate != 1 {
+                scanner_saved_rate_code.set_value(Some(cur_rate));
                 sdr_rate_bw_code.set(1);
             }
             if !sdr_streaming.get_untracked() || streaming_cont_iq.get_untracked() {
@@ -410,10 +526,15 @@ pub fn App() -> impl IntoView {
     let on_close_scanner = Callback::new(move |_| {
         scanner_open.set(false);
         clear_next_peak.set_value(true);
+        let restored = scanner_saved_rate_code
+            .get_value()
+            .unwrap_or(sdr_rate_bw_code.get_untracked());
+        scanner_saved_rate_code.set_value(None);
+        sdr_rate_bw_code.set(restored);
         if transport.get_untracked().status.is_active() {
             send_sdr_tune(
                 sdr_center_freq_mhz.get_untracked(),
-                sdr_rate_bw_code.get_untracked(),
+                restored,
                 sdr_gain_index.get_untracked(),
             );
         }
@@ -428,11 +549,12 @@ pub fn App() -> impl IntoView {
         scanner_open.set(false);
         sdr_center_freq_mhz.set(clamped);
         clear_next_peak.set_value(true);
-        send_sdr_tune(
-            clamped,
-            sdr_rate_bw_code.get_untracked(),
-            sdr_gain_index.get_untracked(),
-        );
+        let restored = scanner_saved_rate_code
+            .get_value()
+            .unwrap_or(sdr_rate_bw_code.get_untracked());
+        scanner_saved_rate_code.set_value(None);
+        sdr_rate_bw_code.set(restored);
+        send_sdr_tune(clamped, restored, sdr_gain_index.get_untracked());
     });
 
     let on_toggle_drawer = Callback::new(move |_| drawer_open.update(|o| *o = !*o));
@@ -504,6 +626,7 @@ pub fn App() -> impl IntoView {
                 on_close=on_close_raw_iq
                 frame=raw_iq_frame
                 iq_kb=raw_iq_kb
+                max_iq_kb=max_iq_kb
                 streaming_cont_iq=streaming_cont_iq
                 on_request_single_shot=on_request_single_iq
                 on_toggle_cont_iq=on_toggle_cont_iq

@@ -10,6 +10,7 @@ pub fn RawIqInspector(
     on_close: Callback<()>,
     frame: RwSignal<Option<SdrRawIqFrame>>,
     iq_kb: RwSignal<u8>,
+    max_iq_kb: RwSignal<u8>,
     streaming_cont_iq: RwSignal<bool>,
     on_request_single_shot: Callback<()>,
     on_toggle_cont_iq: Callback<()>,
@@ -251,10 +252,16 @@ pub fn RawIqInspector(
                                     }
                                 }
                             >
-                                <option value="1">"1,024"</option>
-                                <option value="2">"2,048"</option>
-                                <option value="4">"4,096"</option>
-                                <option value="8">"8,192"</option>
+                                {move || {
+                                    let max = max_iq_kb.get();
+                                    [(1u8, "1,024"), (2, "2,048"), (4, "4,096"), (8, "8,192")]
+                                        .into_iter()
+                                        .filter(|(kb, _)| *kb <= max)
+                                        .map(|(kb, label)| {
+                                            view! { <option value=kb.to_string()>{label}</option> }
+                                        })
+                                        .collect_view()
+                                }}
                             </select>
                         </div>
 

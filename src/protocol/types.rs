@@ -171,6 +171,7 @@ pub struct BoardCapabilitiesFrame {
     pub board: String,
     pub firmware: String,
     pub sdr_capable: bool,
+    pub max_iq_kb: u8,
 }
 
 impl BoardCapabilitiesFrame {
@@ -183,6 +184,7 @@ impl BoardCapabilitiesFrame {
             board: id.board.clone(),
             firmware: id.firmware.clone(),
             sdr_capable,
+            max_iq_kb: id.get_u64("max_iq_kb").unwrap_or(8).clamp(1, 16) as u8,
         }
     }
 }
@@ -200,7 +202,6 @@ pub struct SdrSpectrumFrame {
     pub capture_truncated: bool,
     pub lo_div_active: bool,
     pub power_dbfs: Vec<f32>,
-    pub raw_bytes: Vec<u8>,
     pub timestamp_ms: f64,
 }
 
