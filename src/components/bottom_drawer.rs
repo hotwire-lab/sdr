@@ -6,16 +6,7 @@ use leptos::prelude::*;
 use crate::transport::serial::SerialTransport;
 
 fn sdr_firmware_profiles() -> Vec<FirmwareProfile> {
-    vec![
-        FirmwareProfile::xiao_esp32s3(
-            "HotWire_SDR_XIAO_ESP32S3.ino",
-            "1.84–2.79 GHz RF Spectrum Analyzer (External U.FL Antenna, 8 MB Flash)",
-        ),
-        FirmwareProfile::xiao_esp32c6(
-            "HotWire_SDR_XIAO_ESP32C6.ino",
-            "1.84–2.79 GHz RF Spectrum Analyzer (External U.FL default: GPIO3=LOW, GPIO14=HIGH)",
-        ),
-    ]
+    FirmwareProfile::standard_profiles(ToolId::Sdr)
 }
 
 #[component]

@@ -1,6 +1,7 @@
-use hotwire_core::protocol::{BoardIdentity, FirmwareMismatch, ToolId};
-use hotwire_core::transport::HandshakeGuard;
+use hotwire_core::protocol::{FrameRule, ToolId};
 use hotwire_core::ui::{FirmwareMismatchModal, HotWireTheme};
+use hotwire_core::web::perf_now;
+use hotwire_core::{use_hotwire_session, SessionConfig};
 use leptos::prelude::*;
 
 use crate::components::bottom_drawer::BottomDrawer;
@@ -9,38 +10,24 @@ use crate::components::sdr_control_bar::SdrControlBar;
 use crate::components::sdr_spectrum_waterfall::SdrSpectrumWaterfall;
 use crate::components::top_toolbar::TopToolbar;
 use crate::components::wideband_scanner_modal::WidebandScannerModal;
-use crate::dsp::sdr_dsp::{
-    update_spectrum_traces_in_place, DspProcessOptions, SpectrumTraceState,
-};
+use crate::dsp::sdr_dsp::{update_spectrum_traces_in_place, DspProcessOptions, SpectrumTraceState};
 use crate::protocol::codec::{
     build_sdr_stream_ctrl_cmd, build_sdr_sweep_cfg_cmd, build_sdr_tune_cmd, clamp_sdr_freq_mhz,
-    resolve_sdr_rate_preset,
+    decode_response_payload, resolve_sdr_rate_preset,
 };
-use crate::protocol::demuxer::ProtocolDemuxer;
 use crate::protocol::types::{
-    DecodedFrame, SdrRawIqFrame, SdrSpectrumFrame, SDR_DSP_FLAG_DC_CANCEL, SDR_DSP_FLAG_MAX_HOLD,
-    SDR_STREAM_CONT_IQ, SDR_STREAM_FFT, SDR_STREAM_SINGLE_IQ, SDR_STREAM_STOP,
+    BoardCapabilitiesFrame, DecodedFrame, SdrRawIqFrame, SdrSpectrumFrame, MAX_FRAME_PAYLOAD_LEN,
+    SDR_DSP_FLAG_DC_CANCEL, SDR_DSP_FLAG_MAX_HOLD, SDR_STREAM_CONT_IQ, SDR_STREAM_FFT,
+    SDR_STREAM_SINGLE_IQ, SDR_STREAM_STOP, TYPE_SDR_RAW_IQ_FRAME, TYPE_SDR_SPECTRUM_FRAME,
 };
-use crate::transport::serial::{create_sdr_transport, TransportKind, TransportSnapshot};
-
-fn perf_now() -> f64 {
-    web_sys::window()
-        .and_then(|w| w.performance())
-        .map(|p| p.now())
-        .unwrap_or(0.0)
-}
+use crate::transport::serial::{create_sdr_transport, TransportKind};
 
 #[component]
 pub fn App() -> impl IntoView {
     let serial_transport = StoredValue::new_local(create_sdr_transport());
 
-    let transport = RwSignal::new(serial_transport.with_value(|t| t.snapshot()));
-    let identity = RwSignal::new(None::<BoardIdentity>);
-    let board_caps = RwSignal::new(None::<crate::protocol::types::BoardCapabilitiesFrame>);
+    let board_caps = RwSignal::new(None::<BoardCapabilitiesFrame>);
     let max_iq_kb = RwSignal::new(8u8);
-    let mismatch = RwSignal::new(None::<FirmwareMismatch>);
-    let flasher_mismatch = RwSignal::new(None::<FirmwareMismatch>);
-    let handshake_guard = StoredValue::new_local(HandshakeGuard::new(ToolId::Sdr));
 
     // SDR state
     let sdr_streaming = RwSignal::new(false);
@@ -78,10 +65,9 @@ pub fn App() -> impl IntoView {
     let sweep_saved_rate_code = StoredValue::new(None::<u8>);
     let resume_fft_after_raw_iq = StoredValue::new(false);
     let last_frame_ts = StoredValue::new(0.0f64);
-    let demuxer = StoredValue::new_local(ProtocolDemuxer::new());
 
     let send_sdr_tune = move |freq_mhz: u16, bw_code: u8, gain: u8| {
-        if !transport.get_untracked().status.is_active() {
+        if !serial_transport.with_value(|t| t.snapshot().status.is_active()) {
             return;
         }
         let cmd = build_sdr_tune_cmd(freq_mhz as i32, bw_code, gain as i32);
@@ -102,7 +88,7 @@ pub fn App() -> impl IntoView {
     };
 
     let send_sdr_stream_ctrl = move |mode: u8, size_param: u8| {
-        if !transport.get_untracked().status.is_active() {
+        if !serial_transport.with_value(|t| t.snapshot().status.is_active()) {
             return;
         }
         let cmd = build_sdr_stream_ctrl_cmd(
@@ -115,7 +101,7 @@ pub fn App() -> impl IntoView {
     };
 
     let resume_fft_stream = move || {
-        if !transport.get_untracked().status.is_active() {
+        if !serial_transport.with_value(|t| t.snapshot().status.is_active()) {
             return;
         }
         send_sdr_tune(
@@ -129,164 +115,131 @@ pub fn App() -> impl IntoView {
         send_sdr_stream_ctrl(SDR_STREAM_FFT, sdr_fft_log2.get_untracked());
     };
 
-    // Initialize transport listeners
-    serial_transport.with_value(|st| {
-        st.init(
-            move |snap: TransportSnapshot| {
-                let disconnected = !snap.status.is_active();
-                let is_usb = snap.status.is_usb_connected();
-                let dev_name = snap.device_name.clone();
-                transport.set(snap);
-                if disconnected {
-                    handshake_guard.update_value(|g| g.cancel());
-                    sdr_streaming.set(false);
-                    streaming_cont_iq.set(false);
-                    sdr_sweep_enabled.set(false);
-                    scanner_saved_rate_code.set_value(None);
-                    sweep_saved_rate_code.set_value(None);
-                    resume_fft_after_raw_iq.set_value(false);
-                    sdr_adc_clip.set(false);
-                    sdr_capture_truncated.set(false);
-                    sdr_lo_div_active.set(false);
-                    identity.set(None);
-                    board_caps.set(None);
-                    max_iq_kb.set(8);
-                    sdr_fps.set(0.0);
-                    last_frame_ts.set_value(0.0);
-                    demuxer.update_value(|d| d.reset());
-                } else if is_usb {
-                    mismatch.set(None);
-                    flasher_mismatch.set(None);
-                    handshake_guard.update_value(|g| {
-                        g.arm_timeout(dev_name, 5000, move |mm| {
-                            mismatch.set(Some(mm.clone()));
-                            flasher_mismatch.set(Some(mm));
-                            serial_transport.with_value(|t| t.disconnect());
-                        });
-                    });
-                } else {
-                    handshake_guard.update_value(|g| g.cancel());
-                    mismatch.set(None);
-                    flasher_mismatch.set(None);
+    let session = use_hotwire_session(
+        serial_transport.with_value(|t| t.clone()),
+        SessionConfig::new(
+            ToolId::Sdr,
+            vec![
+                FrameRule::new(TYPE_SDR_SPECTRUM_FRAME, 8 + 256, 8 + 2048),
+                FrameRule::new(TYPE_SDR_RAW_IQ_FRAME, 8 + 2, MAX_FRAME_PAYLOAD_LEN),
+            ],
+        ),
+        move |id, _is_usb| {
+            let caps = BoardCapabilitiesFrame::from_identity(id);
+            drawer_open.set(false);
+            let max_iq = caps.max_iq_kb.clamp(1, 16);
+            max_iq_kb.set(max_iq);
+            if raw_iq_kb.get_untracked() > max_iq {
+                raw_iq_kb.set(max_iq);
+            }
+            scanner_saved_rate_code.set_value(None);
+            sweep_saved_rate_code.set_value(None);
+            resume_fft_after_raw_iq.set_value(false);
+            // The firmware keeps its sweep configuration across USB reconnects;
+            // explicitly return to a clean single-tune state before streaming.
+            let sweep_off = build_sdr_sweep_cfg_cmd(2400, 0, 4);
+            serial_transport.with_value(|t| t.send_bytes(&sweep_off));
+            sdr_sweep_enabled.set(false);
+            // Auto-start live RF spectrum streaming on verified connect.
+            send_sdr_tune(
+                sdr_center_freq_mhz.get_untracked(),
+                sdr_rate_bw_code.get_untracked(),
+                sdr_gain_index.get_untracked(),
+            );
+            sdr_streaming.set(true);
+            streaming_cont_iq.set(false);
+            last_frame_ts.set_value(0.0);
+            send_sdr_stream_ctrl(SDR_STREAM_FFT, sdr_fft_log2.get_untracked());
+            board_caps.set(Some(caps));
+        },
+        move || {
+            sdr_streaming.set(false);
+            streaming_cont_iq.set(false);
+            sdr_sweep_enabled.set(false);
+            scanner_saved_rate_code.set_value(None);
+            sweep_saved_rate_code.set_value(None);
+            resume_fft_after_raw_iq.set_value(false);
+            sdr_adc_clip.set(false);
+            sdr_capture_truncated.set(false);
+            sdr_lo_div_active.set(false);
+            board_caps.set(None);
+            max_iq_kb.set(8);
+            sdr_fps.set(0.0);
+            last_frame_ts.set_value(0.0);
+        },
+        move |frame_type, payload| {
+            let Some(frame) = decode_response_payload(frame_type, payload) else {
+                return;
+            };
+            match frame {
+                DecodedFrame::Capabilities(_, _) => {
+                    // Capabilities are intercepted by the shared session.
                 }
-            },
-            move |bytes: &[u8]| {
-                demuxer.update_value(|d| {
-                    d.feed(
-                        bytes,
-                        |frame| match frame {
-                            DecodedFrame::Capabilities(id, c) => {
-                                serial_transport.with_value(|t| t.notify_handshake_ok());
-                                if transport.get_untracked().status.is_usb_connected() {
-                                    let mut verdict = Ok(());
-                                    handshake_guard.update_value(|g| {
-                                        verdict = g.verify(&id);
-                                    });
-                                    if let Err(mm) = verdict {
-                                        mismatch.set(Some(mm.clone()));
-                                        flasher_mismatch.set(Some(mm));
-                                        serial_transport.with_value(|t| t.disconnect());
-                                        return;
-                                    }
+                DecodedFrame::SdrSpectrum(spec) => {
+                    let now = perf_now();
+                    let prev_ts = last_frame_ts.get_value();
+                    let mut dt_sec = 0.0f32;
+                    if prev_ts > 0.0 {
+                        let dt = now - prev_ts;
+                        if dt > 1.0 {
+                            dt_sec = (dt / 1000.0).clamp(0.0, 1.0) as f32;
+                            let inst_fps = 1000.0 / dt;
+                            sdr_fps.update(|prev| {
+                                *prev = if *prev == 0.0 {
+                                    inst_fps
                                 } else {
-                                    handshake_guard.update_value(|g| g.cancel());
-                                }
-                                mismatch.set(None);
-                                flasher_mismatch.set(None);
-                                drawer_open.set(false);
-                                identity.set(Some(id));
-                                board_caps.set(Some(c.clone()));
-                                let max_iq = c.max_iq_kb.clamp(1, 16);
-                                max_iq_kb.set(max_iq);
-                                if raw_iq_kb.get_untracked() > max_iq {
-                                    raw_iq_kb.set(max_iq);
-                                }
-                                scanner_saved_rate_code.set_value(None);
-                                sweep_saved_rate_code.set_value(None);
-                                resume_fft_after_raw_iq.set_value(false);
-                                // The firmware keeps its sweep configuration across
-                                // USB reconnects; explicitly return to a clean
-                                // single-tune state before starting the stream.
-                                if transport.get_untracked().status.is_active() {
-                                    let sweep_off = build_sdr_sweep_cfg_cmd(2400, 0, 4);
-                                    serial_transport.with_value(|t| t.send_bytes(&sweep_off));
-                                }
-                                sdr_sweep_enabled.set(false);
-                                // Auto-start live RF spectrum streaming on verified connect (matching Oscilloscope)
-                                send_sdr_tune(
-                                    sdr_center_freq_mhz.get_untracked(),
-                                    sdr_rate_bw_code.get_untracked(),
-                                    sdr_gain_index.get_untracked(),
-                                );
-                                sdr_streaming.set(true);
-                                streaming_cont_iq.set(false);
-                                last_frame_ts.set_value(0.0);
-                                send_sdr_stream_ctrl(SDR_STREAM_FFT, sdr_fft_log2.get_untracked());
-                            }
-                            DecodedFrame::SdrSpectrum(spec) => {
-                                let now = perf_now();
-                                let prev_ts = last_frame_ts.get_value();
-                                let mut dt_sec = 0.0f32;
-                                if prev_ts > 0.0 {
-                                    let dt = now - prev_ts;
-                                    if dt > 1.0 {
-                                        dt_sec = (dt / 1000.0).clamp(0.0, 1.0) as f32;
-                                        let inst_fps = 1000.0 / dt;
-                                        sdr_fps.update(|prev| {
-                                            *prev = if *prev == 0.0 {
-                                                inst_fps
-                                            } else {
-                                                *prev * 0.75 + inst_fps * 0.25
-                                            };
-                                        });
-                                    }
-                                }
-                                last_frame_ts.set_value(now);
-
-                                sdr_adc_clip.set(spec.adc_clip);
-                                sdr_lo_div_active.set(spec.lo_div_active);
-                                sdr_capture_truncated.set(spec.capture_truncated);
-
-                                let invert =
-                                    transport.get_untracked().transport != TransportKind::Demo;
-                                let clear_peak = clear_next_peak.get_value();
-                                if clear_peak {
-                                    clear_next_peak.set_value(false);
-                                }
-                                let opts = DspProcessOptions {
-                                    dc_notch: sdr_dc_notch.get_untracked(),
-                                    spur_blanker: sdr_spur_blanker.get_untracked(),
-                                    invert_spectrum: invert,
-                                    clear_peak_hold: clear_peak,
-                                    peak_decay_db_per_sec: sdr_peak_decay_db_per_sec.get_untracked(),
-                                    dt_sec,
-                                    ..Default::default()
+                                    *prev * 0.75 + inst_fps * 0.25
                                 };
+                            });
+                        }
+                    }
+                    last_frame_ts.set_value(now);
 
-                                sdr_trace.update(|prev| {
-                                    update_spectrum_traces_in_place(
-                                        prev,
-                                        &spec.power_dbfs,
-                                        spec.center_freq_mhz as f64,
-                                        spec.span_mhz,
-                                        opts,
-                                    );
-                                });
-                                latest_sdr_frame.set(Some(spec));
-                                sdr_frame_version.update(|v| *v += 1);
-                            }
-                            DecodedFrame::SdrRawIq(iq) => {
-                                sdr_adc_clip.set(iq.adc_clip);
-                                sdr_lo_div_active.set(iq.lo_div_active);
-                                raw_iq_frame.set(Some(iq));
-                            }
-                        },
-                        |_| {},
-                    );
-                });
-            },
-        );
-    });
+                    sdr_adc_clip.set(spec.adc_clip);
+                    sdr_lo_div_active.set(spec.lo_div_active);
+                    sdr_capture_truncated.set(spec.capture_truncated);
+
+                    let invert = serial_transport
+                        .with_value(|t| t.snapshot().transport != TransportKind::Demo);
+                    let clear_peak = clear_next_peak.get_value();
+                    if clear_peak {
+                        clear_next_peak.set_value(false);
+                    }
+                    let opts = DspProcessOptions {
+                        dc_notch: sdr_dc_notch.get_untracked(),
+                        spur_blanker: sdr_spur_blanker.get_untracked(),
+                        invert_spectrum: invert,
+                        clear_peak_hold: clear_peak,
+                        peak_decay_db_per_sec: sdr_peak_decay_db_per_sec.get_untracked(),
+                        dt_sec,
+                        ..Default::default()
+                    };
+
+                    sdr_trace.update(|prev| {
+                        update_spectrum_traces_in_place(
+                            prev,
+                            &spec.power_dbfs,
+                            spec.center_freq_mhz as f64,
+                            spec.span_mhz,
+                            opts,
+                        );
+                    });
+                    latest_sdr_frame.set(Some(spec));
+                    sdr_frame_version.update(|v| *v += 1);
+                }
+                DecodedFrame::SdrRawIq(iq) => {
+                    sdr_adc_clip.set(iq.adc_clip);
+                    sdr_lo_div_active.set(iq.lo_div_active);
+                    raw_iq_frame.set(Some(iq));
+                }
+            }
+        },
+        |_| {},
+    );
+    let transport = session.transport;
+    let identity = session.identity;
+    let mismatch = session.mismatch;
+    let flasher_mismatch = session.flasher_mismatch;
 
     // Re-send stream ctrl when DSP/FFT/FPS settings change while streaming
     Effect::new(move |_| {
@@ -304,8 +257,7 @@ pub fn App() -> impl IntoView {
     });
 
     let connected = Signal::derive(move || transport.get().status.is_active());
-    let invert_spectrum =
-        Signal::derive(move || transport.get().transport != TransportKind::Demo);
+    let invert_spectrum = Signal::derive(move || transport.get().transport != TransportKind::Demo);
     let sdr_span_mhz =
         Signal::derive(move || resolve_sdr_rate_preset(sdr_rate_bw_code.get()).span_mhz);
 
@@ -426,14 +378,11 @@ pub fn App() -> impl IntoView {
 
     let on_open_raw_iq = Callback::new(move |_| {
         raw_iq_open.set(true);
-        let was_fft_streaming =
-            sdr_streaming.get_untracked() && !streaming_cont_iq.get_untracked();
+        let was_fft_streaming = sdr_streaming.get_untracked() && !streaming_cont_iq.get_untracked();
         if !streaming_cont_iq.get_untracked() {
             resume_fft_after_raw_iq.set_value(was_fft_streaming);
         }
-        if transport.get_untracked().status.is_active()
-            && !streaming_cont_iq.get_untracked()
-        {
+        if transport.get_untracked().status.is_active() && !streaming_cont_iq.get_untracked() {
             sdr_streaming.set(false);
             send_sdr_tune(
                 sdr_center_freq_mhz.get_untracked(),

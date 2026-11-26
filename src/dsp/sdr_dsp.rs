@@ -150,7 +150,12 @@ pub fn map_db_to_lut_index(db_fs: f32, min_dbfs: f32, max_dbfs: f32) -> usize {
     (norm * 255.0).round() as usize
 }
 
-pub fn bin_to_freq_mhz(bin_index: f64, fft_bins: usize, center_freq_mhz: f64, span_mhz: f64) -> f64 {
+pub fn bin_to_freq_mhz(
+    bin_index: f64,
+    fft_bins: usize,
+    center_freq_mhz: f64,
+    span_mhz: f64,
+) -> f64 {
     if fft_bins == 0 {
         return center_freq_mhz;
     }

@@ -16,16 +16,66 @@ struct BandOverlay {
 }
 
 const BAND_OVERLAYS: &[BandOverlay] = &[
-    BandOverlay { label: "DECT EU", start_mhz: 1880.0, end_mhz: 1900.0, color: "rgba(244, 114, 182, 0.16)" },
-    BandOverlay { label: "13cm Ham", start_mhz: 2320.0, end_mhz: 2400.0, color: "rgba(34, 197, 94, 0.12)" },
-    BandOverlay { label: "BLE 37", start_mhz: 2401.0, end_mhz: 2403.0, color: "rgba(167, 139, 250, 0.22)" },
-    BandOverlay { label: "Wi-Fi Ch 1", start_mhz: 2402.0, end_mhz: 2422.0, color: "rgba(56, 189, 248, 0.14)" },
-    BandOverlay { label: "BLE 38", start_mhz: 2425.0, end_mhz: 2427.0, color: "rgba(167, 139, 250, 0.22)" },
-    BandOverlay { label: "Wi-Fi Ch 6", start_mhz: 2427.0, end_mhz: 2447.0, color: "rgba(52, 211, 153, 0.14)" },
-    BandOverlay { label: "Wi-Fi Ch 11", start_mhz: 2452.0, end_mhz: 2472.0, color: "rgba(251, 191, 36, 0.14)" },
-    BandOverlay { label: "Wi-Fi Ch 13", start_mhz: 2462.0, end_mhz: 2482.0, color: "rgba(249, 115, 22, 0.14)" },
-    BandOverlay { label: "BLE 39", start_mhz: 2479.0, end_mhz: 2481.0, color: "rgba(167, 139, 250, 0.22)" },
-    BandOverlay { label: "LTE B7 DL", start_mhz: 2620.0, end_mhz: 2690.0, color: "rgba(251, 146, 60, 0.14)" },
+    BandOverlay {
+        label: "DECT EU",
+        start_mhz: 1880.0,
+        end_mhz: 1900.0,
+        color: "rgba(244, 114, 182, 0.16)",
+    },
+    BandOverlay {
+        label: "13cm Ham",
+        start_mhz: 2320.0,
+        end_mhz: 2400.0,
+        color: "rgba(34, 197, 94, 0.12)",
+    },
+    BandOverlay {
+        label: "BLE 37",
+        start_mhz: 2401.0,
+        end_mhz: 2403.0,
+        color: "rgba(167, 139, 250, 0.22)",
+    },
+    BandOverlay {
+        label: "Wi-Fi Ch 1",
+        start_mhz: 2402.0,
+        end_mhz: 2422.0,
+        color: "rgba(56, 189, 248, 0.14)",
+    },
+    BandOverlay {
+        label: "BLE 38",
+        start_mhz: 2425.0,
+        end_mhz: 2427.0,
+        color: "rgba(167, 139, 250, 0.22)",
+    },
+    BandOverlay {
+        label: "Wi-Fi Ch 6",
+        start_mhz: 2427.0,
+        end_mhz: 2447.0,
+        color: "rgba(52, 211, 153, 0.14)",
+    },
+    BandOverlay {
+        label: "Wi-Fi Ch 11",
+        start_mhz: 2452.0,
+        end_mhz: 2472.0,
+        color: "rgba(251, 191, 36, 0.14)",
+    },
+    BandOverlay {
+        label: "Wi-Fi Ch 13",
+        start_mhz: 2462.0,
+        end_mhz: 2482.0,
+        color: "rgba(249, 115, 22, 0.14)",
+    },
+    BandOverlay {
+        label: "BLE 39",
+        start_mhz: 2479.0,
+        end_mhz: 2481.0,
+        color: "rgba(167, 139, 250, 0.22)",
+    },
+    BandOverlay {
+        label: "LTE B7 DL",
+        start_mhz: 2620.0,
+        end_mhz: 2690.0,
+        color: "rgba(251, 146, 60, 0.14)",
+    },
 ];
 
 const PLOT_PAD_LEFT: f64 = 54.0;
@@ -231,10 +281,7 @@ pub fn SdrSpectrumWaterfall(
         let cur_m2 = m2.get_untracked();
         let cur_hover = hover_info.get_untracked();
         let cur_cmap = colormap.get_untracked();
-
-        let dpr = web_sys::window()
-            .map(|w| w.device_pixel_ratio())
-            .unwrap_or(1.0);
+        let dpr = hotwire_core::web::capped_device_pixel_ratio();
 
         // 1. Spectrum Canvas
         if let Some(spec_canvas) = spectrum_canvas_ref.get() {
@@ -380,7 +427,13 @@ pub fn SdrSpectrumWaterfall(
                                 ctx.restore();
                             };
 
-                        draw_trace(&tr.peak_hold_dbfs, "rgba(251, 191, 36, 0.72)", 1.25, false, true);
+                        draw_trace(
+                            &tr.peak_hold_dbfs,
+                            "rgba(251, 191, 36, 0.72)",
+                            1.25,
+                            false,
+                            true,
+                        );
                         draw_trace(&tr.avg_dbfs, "rgba(56, 189, 248, 0.85)", 1.35, false, false);
                         draw_trace(&tr.live_dbfs, "#34d399", 1.6, true, false);
                     }
@@ -419,11 +472,7 @@ pub fn SdrSpectrumWaterfall(
                             Some(d) => format!("{tag} {:.2} MHz ({d:.1} dBFS)", mk.freq_mhz),
                             None => format!("{tag} {:.2} MHz", mk.freq_mhz),
                         };
-                        let tw = ctx
-                            .measure_text(&label)
-                            .map(|m| m.width())
-                            .unwrap_or(90.0)
-                            + 10.0;
+                        let tw = ctx.measure_text(&label).map(|m| m.width()).unwrap_or(90.0) + 10.0;
                         let bx = (x - tw / 2.0)
                             .max(PLOT_PAD_LEFT + 2.0)
                             .min(PLOT_PAD_LEFT + plot_w - tw - 2.0);

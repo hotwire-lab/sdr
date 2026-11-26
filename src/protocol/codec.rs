@@ -1,8 +1,8 @@
+#[cfg(test)]
+use hotwire_core::protocol::compute_xor_checksum;
 pub use hotwire_core::protocol::{
     encode_command_8 as build_command_frame, encode_frame as encode_response_frame,
 };
-#[cfg(test)]
-use hotwire_core::protocol::compute_xor_checksum;
 
 use crate::protocol::types::*;
 
@@ -45,11 +45,7 @@ pub fn build_sdr_stream_ctrl_cmd(
     )
 }
 
-pub fn build_sdr_sweep_cfg_cmd(
-    start_freq_mhz: i32,
-    step_count: u8,
-    dwell_frames: u8,
-) -> [u8; 8] {
+pub fn build_sdr_sweep_cfg_cmd(start_freq_mhz: i32, step_count: u8, dwell_frames: u8) -> [u8; 8] {
     let freq = clamp_sdr_freq_mhz(start_freq_mhz);
     build_command_frame(
         CMD_SDR_SWEEP_CFG,
@@ -69,7 +65,9 @@ pub fn resolve_sdr_rate_preset(rate_bw_code: u8) -> SdrSampleRatePreset {
         .unwrap_or(SDR_SAMPLE_RATE_PRESETS[0])
 }
 
-pub fn decode_board_capabilities(payload: &[u8]) -> Option<(BoardIdentity, BoardCapabilitiesFrame)> {
+pub fn decode_board_capabilities(
+    payload: &[u8],
+) -> Option<(BoardIdentity, BoardCapabilitiesFrame)> {
     let identity = BoardIdentity::decode_capabilities(payload)?;
     let caps = BoardCapabilitiesFrame::from_identity(&identity);
     Some((identity, caps))
@@ -191,12 +189,18 @@ mod tests {
         assert_eq!(cmd[7], compute_xor_checksum(&cmd[..7]));
 
         let clamped_low = build_sdr_tune_cmd(1200, 3, -5);
-        assert_eq!(u16::from_le_bytes([clamped_low[3], clamped_low[4]]), SDR_MIN_FREQ_MHZ);
+        assert_eq!(
+            u16::from_le_bytes([clamped_low[3], clamped_low[4]]),
+            SDR_MIN_FREQ_MHZ
+        );
         assert_eq!(clamped_low[5], 3);
         assert_eq!(clamped_low[6], 0xff);
 
         let clamped_high = build_sdr_tune_cmd(3500, 1, 90);
-        assert_eq!(u16::from_le_bytes([clamped_high[3], clamped_high[4]]), SDR_MAX_FREQ_MHZ);
+        assert_eq!(
+            u16::from_le_bytes([clamped_high[3], clamped_high[4]]),
+            SDR_MAX_FREQ_MHZ
+        );
         assert_eq!(clamped_high[6], 72);
     }
 

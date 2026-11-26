@@ -26,10 +26,6 @@ impl ProtocolDemuxer {
         }
     }
 
-    pub fn reset(&mut self) {
-        self.inner.reset();
-    }
-
     pub fn feed<F, T>(&mut self, chunk: &[u8], mut on_frame: F, on_terminal_bytes: T)
     where
         F: FnMut(DecodedFrame),

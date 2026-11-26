@@ -37,6 +37,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "hotwire_protocol.h"
 
 #ifndef CONFIG_IDF_TARGET_ESP32S3
   #error "This SDR firmware targets Seeed Studio XIAO ESP32-S3 (ESP32-S3 RF Dump Engine)."
@@ -67,7 +68,7 @@ extern "C" {
 // Hardware Constants (XIAO ESP32-S3)
 // -----------------------------------------------------------------------------
 
-#define HOTWIRE_FW_VERSION "2.1.0-sdr"
+#define HOTWIRE_FW_VERSION "2.1.1-sdr"
 #define HOTWIRE_BOARD_NAME "XIAO-ESP32-S3"
 
 static const char* const BOARD_NAME = HOTWIRE_BOARD_NAME;
@@ -243,7 +244,7 @@ static void sendBinaryFrame(uint8_t typeId, const uint8_t* payload, uint16_t pay
 
 static void sendCapabilitiesFrame() {
   static const char CAPS_JSON[] =
-    "{\"board\":\"XIAO-ESP32-S3\",\"firmware\":\"" HOTWIRE_FW_VERSION "\",\"sdr\":true,\"max_iq_kb\":8}";
+    "{\"board\":\"XIAO-ESP32-S3\",\"firmware\":\"" HOTWIRE_FW_VERSION "\",\"schema\":2,\"tool\":\"sdr\",\"sdr\":true,\"max_iq_kb\":8}";
   sendBinaryFrame(TYPE_BOARD_CAPABILITIES, (const uint8_t*)CAPS_JSON, (uint16_t)(sizeof(CAPS_JSON) - 1));
 }
 
@@ -808,7 +809,7 @@ static void Engine_Core1_Task(void* arg) {
 // -----------------------------------------------------------------------------
 
 static void handleEnterBootloader(uint8_t p1, uint8_t p2, uint8_t p3, uint8_t p4) {
-  if (p1 != 0xB0 || p2 != 0x07 || p3 != 0x10 || p4 != 0xAD) return;
+  if (!hotwire_is_bootloader_magic(p1, p2, p3, p4)) return;
   sdrCfg.streamMode = SDR_STREAM_STOP;
   delay(20);
   REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);

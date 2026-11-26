@@ -66,7 +66,8 @@ impl DemoSimulator {
     }
 
     pub fn build_caps_frame(&self) -> Vec<u8> {
-        let json = br#"{"board":"XIAO-ESP32-S3","firmware":"2.1.0-sdr-demo","sdr":true,"max_iq_kb":4}"#;
+        let json =
+            br#"{"board":"XIAO-ESP32-S3","firmware":"2.1.1-sdr-demo","sdr":true,"max_iq_kb":4}"#;
         encode_response_frame(TYPE_BOARD_CAPABILITIES, json)
     }
 
@@ -464,9 +465,8 @@ impl DemoSimulator {
         for n in 0..sample_count {
             let t = n as f64 / sample_count as f64;
             let sym = (n / 16) as u32 + self.frame_counter;
-            let qpsk_phase =
-                (((sym * 3) ^ (sym >> 2)) & 3) as f64 * (std::f64::consts::FRAC_PI_2)
-                    + std::f64::consts::FRAC_PI_4;
+            let qpsk_phase = (((sym * 3) ^ (sym >> 2)) & 3) as f64 * (std::f64::consts::FRAC_PI_2)
+                + std::f64::consts::FRAC_PI_4;
             let fsk_omega = 2.0 * std::f64::consts::PI * (if is_sub2210 { 22.0 } else { 14.0 }) * t;
             let carrier_amp = if is_sub2210 { 44.0 } else { 40.0 };
 

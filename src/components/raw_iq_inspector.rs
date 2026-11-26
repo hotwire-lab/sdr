@@ -25,9 +25,7 @@ pub fn RawIqInspector(
         }
         let cur_frame = frame.get();
         let vw = view_window.get();
-        let dpr = web_sys::window()
-            .map(|w| w.device_pixel_ratio())
-            .unwrap_or(1.0);
+        let dpr = hotwire_core::web::capped_device_pixel_ratio();
 
         // 1. Time-Domain Canvas
         if let Some(t_canvas) = time_canvas_ref.get() {

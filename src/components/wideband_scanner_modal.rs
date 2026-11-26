@@ -24,11 +24,36 @@ struct ScannerBand {
 }
 
 const SCANNER_BANDS: &[ScannerBand] = &[
-    ScannerBand { label: "DECT EU", start_mhz: 1880.0, end_mhz: 1900.0, color: "rgba(244, 114, 182, 0.16)" },
-    ScannerBand { label: "5/6 LO", start_mhz: 1842.0, end_mhz: 2210.0, color: "rgba(245, 158, 11, 0.05)" },
-    ScannerBand { label: "13cm Ham", start_mhz: 2320.0, end_mhz: 2400.0, color: "rgba(34, 197, 94, 0.14)" },
-    ScannerBand { label: "Wi-Fi / BLE", start_mhz: 2400.0, end_mhz: 2484.0, color: "rgba(56, 189, 248, 0.16)" },
-    ScannerBand { label: "LTE B7 DL", start_mhz: 2620.0, end_mhz: 2690.0, color: "rgba(251, 146, 60, 0.16)" },
+    ScannerBand {
+        label: "DECT EU",
+        start_mhz: 1880.0,
+        end_mhz: 1900.0,
+        color: "rgba(244, 114, 182, 0.16)",
+    },
+    ScannerBand {
+        label: "5/6 LO",
+        start_mhz: 1842.0,
+        end_mhz: 2210.0,
+        color: "rgba(245, 158, 11, 0.05)",
+    },
+    ScannerBand {
+        label: "13cm Ham",
+        start_mhz: 2320.0,
+        end_mhz: 2400.0,
+        color: "rgba(34, 197, 94, 0.14)",
+    },
+    ScannerBand {
+        label: "Wi-Fi / BLE",
+        start_mhz: 2400.0,
+        end_mhz: 2484.0,
+        color: "rgba(56, 189, 248, 0.16)",
+    },
+    ScannerBand {
+        label: "LTE B7 DL",
+        start_mhz: 2620.0,
+        end_mhz: 2690.0,
+        color: "rgba(251, 146, 60, 0.16)",
+    },
 ];
 
 fn build_scan_steps() -> Vec<u16> {
@@ -46,12 +71,7 @@ fn build_scan_steps() -> Vec<u16> {
     steps
 }
 
-fn perf_now() -> f64 {
-    web_sys::window()
-        .and_then(|w| w.performance())
-        .map(|p| p.now())
-        .unwrap_or(0.0)
-}
+use hotwire_core::web::perf_now;
 
 #[derive(Debug, Clone, Copy)]
 struct ScannerHover {
@@ -176,12 +196,7 @@ pub fn WidebandScannerModal(
         let n = bins.len();
         let mut step_seen = vec![f32::NEG_INFINITY; BUCKET_COUNT];
         for (i, &val) in bins.iter().enumerate() {
-            let freq = bin_to_freq_mhz(
-                i as f64,
-                n,
-                frame.center_freq_mhz as f64,
-                frame.span_mhz,
-            );
+            let freq = bin_to_freq_mhz(i as f64, n, frame.center_freq_mhz as f64, frame.span_mhz);
             if freq < SDR_MIN_FREQ_MHZ as f64 || freq > SDR_MAX_FREQ_MHZ as f64 {
                 continue;
             }
@@ -237,9 +252,7 @@ pub fn WidebandScannerModal(
             return;
         };
         let rect = canvas.get_bounding_client_rect();
-        let dpr = web_sys::window()
-            .map(|w| w.device_pixel_ratio())
-            .unwrap_or(1.0);
+        let dpr = hotwire_core::web::capped_device_pixel_ratio();
         let w = rect.width().floor().max(200.0);
         let h = rect.height().floor().max(160.0);
         let pw = (w * dpr).floor() as u32;
@@ -321,74 +334,73 @@ pub fn WidebandScannerModal(
             f += 100;
         }
 
-        let draw_buckets =
-            |arr: &[f32], stroke: &str, lw: f64, fill_grad: bool, dashed: bool| {
-                ctx.save();
-                let grad = if fill_grad {
-                    let g = ctx.create_linear_gradient(0.0, PAD_TOP, 0.0, PAD_TOP + plot_h);
-                    let _ = g.add_color_stop(0.0, "rgba(52, 211, 153, 0.25)");
-                    let _ = g.add_color_stop(1.0, "rgba(52, 211, 153, 0.01)");
-                    Some(g)
-                } else {
-                    None
-                };
-
-                let mut seg_start: Option<usize> = None;
-                let flush_segment = |start: usize, end: usize| {
-                    if end <= start {
-                        return;
-                    }
-                    ctx.begin_path();
-                    let mut first_x = PAD_LEFT;
-                    let mut last_x = PAD_LEFT;
-                    for (idx, &val) in arr.iter().enumerate().take(end).skip(start) {
-                        let freq = SDR_MIN_FREQ_MHZ as f64 + (idx as f64 + 0.5) * BUCKET_RES_MHZ;
-                        let x = freq_to_x(freq);
-                        let y = db_to_y(val as f64);
-                        if idx == start {
-                            ctx.move_to(x, y);
-                            first_x = x;
-                        } else {
-                            ctx.line_to(x, y);
-                        }
-                        last_x = x;
-                    }
-                    if dashed {
-                        let dash = js_sys::Array::new();
-                        dash.push(&4.0.into());
-                        dash.push(&3.0.into());
-                        let _ = ctx.set_line_dash(&dash);
-                    }
-                    ctx.set_stroke_style_str(stroke);
-                    ctx.set_line_width(lw);
-                    ctx.stroke();
-
-                    if let Some(ref g) = grad {
-                        if last_x > first_x {
-                            let _ = ctx.set_line_dash(&js_sys::Array::new());
-                            ctx.line_to(last_x, PAD_TOP + plot_h);
-                            ctx.line_to(first_x, PAD_TOP + plot_h);
-                            ctx.close_path();
-                            ctx.set_fill_style_canvas_gradient(g);
-                            ctx.fill();
-                        }
-                    }
-                };
-
-                for (b, &val) in arr.iter().enumerate() {
-                    if val.is_nan() {
-                        if let Some(s) = seg_start.take() {
-                            flush_segment(s, b);
-                        }
-                    } else if seg_start.is_none() {
-                        seg_start = Some(b);
-                    }
-                }
-                if let Some(s) = seg_start {
-                    flush_segment(s, arr.len());
-                }
-                ctx.restore();
+        let draw_buckets = |arr: &[f32], stroke: &str, lw: f64, fill_grad: bool, dashed: bool| {
+            ctx.save();
+            let grad = if fill_grad {
+                let g = ctx.create_linear_gradient(0.0, PAD_TOP, 0.0, PAD_TOP + plot_h);
+                let _ = g.add_color_stop(0.0, "rgba(52, 211, 153, 0.25)");
+                let _ = g.add_color_stop(1.0, "rgba(52, 211, 153, 0.01)");
+                Some(g)
+            } else {
+                None
             };
+
+            let mut seg_start: Option<usize> = None;
+            let flush_segment = |start: usize, end: usize| {
+                if end <= start {
+                    return;
+                }
+                ctx.begin_path();
+                let mut first_x = PAD_LEFT;
+                let mut last_x = PAD_LEFT;
+                for (idx, &val) in arr.iter().enumerate().take(end).skip(start) {
+                    let freq = SDR_MIN_FREQ_MHZ as f64 + (idx as f64 + 0.5) * BUCKET_RES_MHZ;
+                    let x = freq_to_x(freq);
+                    let y = db_to_y(val as f64);
+                    if idx == start {
+                        ctx.move_to(x, y);
+                        first_x = x;
+                    } else {
+                        ctx.line_to(x, y);
+                    }
+                    last_x = x;
+                }
+                if dashed {
+                    let dash = js_sys::Array::new();
+                    dash.push(&4.0.into());
+                    dash.push(&3.0.into());
+                    let _ = ctx.set_line_dash(&dash);
+                }
+                ctx.set_stroke_style_str(stroke);
+                ctx.set_line_width(lw);
+                ctx.stroke();
+
+                if let Some(ref g) = grad {
+                    if last_x > first_x {
+                        let _ = ctx.set_line_dash(&js_sys::Array::new());
+                        ctx.line_to(last_x, PAD_TOP + plot_h);
+                        ctx.line_to(first_x, PAD_TOP + plot_h);
+                        ctx.close_path();
+                        ctx.set_fill_style_canvas_gradient(g);
+                        ctx.fill();
+                    }
+                }
+            };
+
+            for (b, &val) in arr.iter().enumerate() {
+                if val.is_nan() {
+                    if let Some(s) = seg_start.take() {
+                        flush_segment(s, b);
+                    }
+                } else if seg_start.is_none() {
+                    seg_start = Some(b);
+                }
+            }
+            if let Some(s) = seg_start {
+                flush_segment(s, arr.len());
+            }
+            ctx.restore();
+        };
 
         peak_buckets.with_value(|pk| {
             draw_buckets(pk, "rgba(251, 191, 36, 0.78)", 1.2, false, true);
@@ -397,9 +409,8 @@ pub fn WidebandScannerModal(
             draw_buckets(lv, "#34d399", 1.5, true, false);
         });
 
-        let active_center = scan_steps.with_value(|s| {
-            s.get(step_i).copied().unwrap_or(SDR_MIN_FREQ_MHZ) as f64
-        });
+        let active_center =
+            scan_steps.with_value(|s| s.get(step_i).copied().unwrap_or(SDR_MIN_FREQ_MHZ) as f64);
         let win_x0 = freq_to_x(active_center - STEP_SPAN_MHZ as f64 / 2.0).max(PAD_LEFT);
         let win_x1 = freq_to_x(active_center + STEP_SPAN_MHZ as f64 / 2.0).min(PAD_LEFT + plot_w);
         let scan_x = freq_to_x(active_center);
